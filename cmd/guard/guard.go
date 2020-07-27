@@ -14,14 +14,14 @@ func main() {
 		panic(err)
 	}
 
-	// Create validator watcher
-	w, err := watcher.NewWatcher(config)
+	// Create validator guard
+	guard, err := watcher.NewGuard(config)
 	if err != nil {
 		panic(err)
 	}
 
-	// Run created validator watcher
-	err = w.Run()
+	// Run created validator guard
+	err = guard.Run()
 	if err != nil {
 		panic(err)
 	}

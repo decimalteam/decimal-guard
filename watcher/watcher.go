@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tendermint/tendermint/libs/log"
@@ -21,46 +21,67 @@ const (
 	QueryValidatorSetUpdates = "tm.event = 'ValidatorSetUpdates'"
 )
 
-// Config is an object containing validator watcher configuration.
-type Config struct {
-	NodeEndpoint       string `env:"NODE_ENDPOINT" mandatory:"true" default:"tcp://localhost:26657"`
-	MissedBlocksLimit  int    `env:"MISSED_BLOCKS_LIMIT" mandatory:"true" default:"8"`
-	MissedBlocksWindow int    `env:"MISSED_BLOCKS_WINDOW" mandatory:"true" default:"24"`
-	NewBlockTimeout    int    `env:"NEW_BLOCK_TIMEOUT" mandatory:"true" default:"0"`
-	ValidatorAddress   string `env:"VALIDATOR_ADDRESS" mandatory:"true"`
-	SetOfflineTx       string `env:"SET_OFFLINE_TX" mandatory:"true"`
+type eventBase struct {
+	endpoint       string
+	lastKnownBlock int64
+}
+
+type eventMissedBlock struct {
+	eventBase
+	missedBlocks int
+}
+
+type eventNoBlock struct {
+	eventBase
+	lastBlock int64
 }
 
 // Watcher is an object implementing necessary validator watcher functions.
 type Watcher struct {
-	config *Config
-	client *client.HTTP
-	logger log.Logger
+	config               *Config
+	endpoint             string
+	client               *client.HTTP
+	logger               log.Logger
+	chanEventMissedBlock chan<- eventMissedBlock
+	chanEventNoBlock     chan<- eventNoBlock
+	chanDisconnect       chan error
+	waitGroup            sync.WaitGroup
 }
 
 // NewWatcher creates new Watcher instance.
-func NewWatcher(config *Config) (*Watcher, error) {
-	client, err := client.NewHTTP(config.NodeEndpoint, "/websocket")
+func NewWatcher(
+	config *Config,
+	endpoint string,
+	chanEventMissedBlock chan<- eventMissedBlock,
+	chanEventNoBlock chan<- eventNoBlock,
+) (*Watcher, error) {
+	client, err := client.NewHTTP(endpoint, "/websocket")
 	if err != nil {
 		return nil, err
 	}
 	watcher := &Watcher{
-		config: config,
-		client: client,
-		logger: log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
+		config:               config,
+		endpoint:             endpoint,
+		client:               client,
+		chanEventMissedBlock: chanEventMissedBlock,
+		chanEventNoBlock:     chanEventNoBlock,
+		chanDisconnect:       make(chan error, 1),
+		logger:               log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
 	}
 	return watcher, nil
 }
 
-// Run starts watching for the validator health and stops only when application is closed.
-func (w *Watcher) Run() (err error) {
+// Start connects validator watcher to the node and starts listening to blocks.
+func (w *Watcher) Start() (err error) {
+	if w.client.IsRunning() {
+		return
+	}
+
 	ctx := context.Background()
 	subscriber := "watcher"
 	capacity := 1000000
 
-	// Subscribe to interrupt signal to normally exit on Ctrl+C
-	chanInterrupt := make(chan os.Signal, 1)
-	signal.Notify(chanInterrupt, os.Interrupt, os.Kill)
+	fmt.Printf("[%s] Starting...\n", w.endpoint)
 
 	// Start Tendermint HTTP client
 	err = w.client.Start()
@@ -99,6 +120,10 @@ func (w *Watcher) Run() (err error) {
 		timeout = time.After(time.Duration(w.config.NewBlockTimeout) * time.Second)
 	}
 
+	// Lock the wait group
+	w.waitGroup.Add(1)
+	defer w.waitGroup.Done()
+
 	// Main loop
 	for {
 		select {
@@ -108,7 +133,7 @@ func (w *Watcher) Run() (err error) {
 				err = errors.New("unable to cast received event to struct types.EventDataNewBlock")
 				return
 			}
-			w.logger.Info(fmt.Sprintf("Received new block #%d", event.Block.Height))
+			w.logger.Info(fmt.Sprintf("[%s] Received new block #%d", w.endpoint, event.Block.Height))
 			validators, e := w.client.Validators(&event.Block.LastCommit.Height, 0, 1000)
 			if e != nil {
 				err = e
@@ -130,18 +155,26 @@ func (w *Watcher) Run() (err error) {
 					}
 				}
 				i := int(event.Block.LastCommit.Height) % len(missedBlocks)
+				missedBlocksCountPrev := countMissedBlocks()
 				missedBlocks[i] = !signed
-				w.logger.Info(fmt.Sprintf(
-					"Missed to sign %d blocks of last %d blocks",
-					countMissedBlocks(), w.config.MissedBlocksWindow,
-				))
-				if !signed && countMissedBlocks() >= w.config.MissedBlocksLimit {
+				missedBlocksCount := countMissedBlocks()
+				if missedBlocksCountPrev != missedBlocksCount {
 					w.logger.Info(fmt.Sprintf(
-						"WARNING: There are too many blocks missed to sign (%d of last %d)",
-						w.config.MissedBlocksLimit, w.config.MissedBlocksWindow,
+						"[%s] Missed to sign %d blocks of last %d blocks",
+						w.endpoint, missedBlocksCount, w.config.MissedBlocksWindow,
 					))
-					err = w.setOffline()
-					return
+					blockchainInfo, _ := w.client.BlockchainInfo(0, 0)
+					lastKnownBlock := int64(0)
+					if blockchainInfo != nil {
+						lastKnownBlock = blockchainInfo.LastHeight
+					}
+					w.chanEventMissedBlock <- eventMissedBlock{
+						eventBase: eventBase{
+							endpoint:       w.endpoint,
+							lastKnownBlock: lastKnownBlock,
+						},
+						missedBlocks: missedBlocksCount,
+					}
 				}
 			}
 			if timeout != nil {
@@ -153,24 +186,39 @@ func (w *Watcher) Run() (err error) {
 				err = errors.New("unable to cast received event to struct types.EventDataValidatorSetUpdates")
 				return
 			}
-			w.logger.Info("Received new validator set updates")
-		case <-timeout:
-			w.logger.Info(fmt.Sprintf("WARNING: There are no new blocks during %d seconds", w.config.NewBlockTimeout))
-			err = w.setOffline()
+			w.logger.Info("[%s] Received new validator set updates", w.endpoint)
+		case <-w.chanDisconnect:
 			return
-		case v := <-chanInterrupt:
-			switch v {
-			case os.Interrupt:
-				w.logger.Info("Interrupt signal received. Shutting down...")
-			case os.Kill:
-				w.logger.Info("Kill signal received. Shutting down...")
+		case <-timeout:
+			blockchainInfo, _ := w.client.BlockchainInfo(0, 0)
+			lastKnownBlock := int64(0)
+			if blockchainInfo != nil {
+				lastKnownBlock = blockchainInfo.LastHeight
+			}
+			w.chanEventNoBlock <- eventNoBlock{
+				eventBase: eventBase{
+					endpoint:       w.endpoint,
+					lastKnownBlock: lastKnownBlock,
+				},
+				lastBlock: lastKnownBlock,
 			}
 			return
 		}
 	}
 }
 
-// setOffline creates, signs and broadcasts `validator/set_offline` transaction from validator operator account.
+// Stop closes existing connection to the node.
+func (w *Watcher) Stop(err error) {
+	if w.chanDisconnect == nil {
+		return
+	}
+	w.chanDisconnect <- err
+	w.waitGroup.Wait()
+	close(w.chanDisconnect)
+	w.chanDisconnect = nil
+}
+
+// setOffline broadcasts `validator/set_offline` transaction from validator operator account.
 func (w *Watcher) setOffline() error {
 	txData, err := hex.DecodeString(w.config.SetOfflineTx)
 	if err != nil {
