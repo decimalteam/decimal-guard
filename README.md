@@ -40,7 +40,7 @@ Transaction (hex):
 ab01282816a90a1a51f5833b0a14d0c71c31a891e5023ae63fd2bcf2732f04f32158120310be031a6a0a26eb5ae987210279f7e074d08a23e2fc7b7fd9e49a0d6570a28bf6c9cb988e92f678c32935097412407979e0cc483f241e48ed3c371d9d668a5b978fb474afc5fea5803c89bd2a2dac3db15eb84fef1fce25e783e279a33bac7b96bbe6786c9608d52c69baecacf9d02218446563696d616c2047756172642074726967676572726564
 ```
 
-Please, confirm that chain ID, account and operator addresses are correct. The last line is a generated transaction in hex format. Your should use it as `SET_OFFLINE_TX` environment variable to run Decimal Guard.
+Please, confirm that chain ID, account and operator addresses are correct. The last line is a generated transaction in hex format. You should use it as value for `SET_OFFLINE_TX` environment variable (by specifying in `cmd/guard/.env`) to run Decimal Guard.
 
 ## Guard a validator node
 
