@@ -13,7 +13,7 @@ import (
 	"bitbucket.org/decimalteam/decimal-go-sdk/wallet"
 )
 
-// Config is an object containing validator watcher configuration.
+// Config is an object containing validator guard configuration.
 type Config struct {
 	APIURL         string `env:"API_URL" mandatory:"true"`
 	BaseCoinSymbol string `env:"BASE_COIN_SYMBOL" mandatory:"true"` // TODO: Retrieve from the chain?

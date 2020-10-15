@@ -1,21 +1,21 @@
 package main
 
 import (
+	"bitbucket.org/decimalteam/decimal-guard/guard"
 	"bitbucket.org/decimalteam/decimal-guard/utils"
-	"bitbucket.org/decimalteam/decimal-guard/watcher"
 )
 
 func main() {
 
-	// Load validator watcher configuration
-	config := &watcher.Config{}
+	// Load validator guard configuration
+	config := &guard.Config{}
 	err := utils.LoadConfig(config)
 	if err != nil {
 		panic(err)
 	}
 
 	// Create validator guard
-	guard, err := watcher.NewGuard(config)
+	guard, err := guard.NewGuard(config)
 	if err != nil {
 		panic(err)
 	}
