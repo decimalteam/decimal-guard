@@ -136,11 +136,12 @@ func (guard *Guard) Run() (err error) {
 			}
 			// Log error
 			guard.logger.Error(fmt.Sprintf(
-				"ERROR: There are no any new blocks during %d seconds (latest block %d at %s)! Disconnecting...",
+				"ERROR: There are no any new blocks during %d seconds (latest block %d at %s)! Shutting down...",
 				guard.config.NewBlockTimeout, e.latestBlock, e.latestBlockTime,
 			))
 			return
 		case <-printTicker.C:
+			// Log guard state
 			guard.printState()
 		case <-healthTicker.C:
 			// Ensure there is at lease one connected node and reconnect not connected ones
@@ -164,7 +165,7 @@ func (guard *Guard) Run() (err error) {
 			if !connected {
 				// Log error
 				guard.logger.Error(fmt.Sprintf(
-					"ERROR: There are no any new blocks during %d seconds! Disconnecting...",
+					"ERROR: There are no any new blocks during %d seconds! Shutting down...",
 					guard.config.NewBlockTimeout,
 				))
 				return
@@ -310,12 +311,16 @@ func (guard *Guard) printState() {
 			endpointMaxLength = len(w.endpoint)
 		}
 	}
-	sb.WriteString("Watchers:")
+	sb.WriteString("====================================================================================================")
 	for i, w := range guard.watchers {
 		endpointStr := fmt.Sprintf(fmt.Sprintf("%%-%ds", endpointMaxLength), w.endpoint)
 		var statusStr string
 		if w.IsRunning() {
-			statusStr = fmt.Sprintf("%-14s", "connected")
+			if w.latestBlockTime.Add(time.Minute).Before(time.Now()) {
+				statusStr = fmt.Sprintf("%-14s", "syncing")
+			} else {
+				statusStr = fmt.Sprintf("%-14s", "connected")
+			}
 		} else if w.connectingTime.IsZero() {
 			statusStr = fmt.Sprintf("%-14s", "not connected")
 		} else {
@@ -339,12 +344,11 @@ func (guard *Guard) printState() {
 				ageStr = fmt.Sprintf(" (at %s)", w.latestBlockTime)
 			}
 		}
-		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf(" %2d.  %s", i+1, endpointStr))
-		sb.WriteString(fmt.Sprintf("  |  state: %s", statusStr))
+		sb.WriteString(fmt.Sprintf("\nWatcher#%d: %s  |  state: %s", i, endpointStr, statusStr))
 		if w.latestBlock > 0 && !w.latestBlockTime.IsZero() {
-			sb.WriteString(fmt.Sprintf("  |  block: %d%s", w.latestBlock, ageStr))
+			sb.WriteString(fmt.Sprintf("  |  latest block: %d%s", w.latestBlock, ageStr))
 		}
 	}
-	guard.logger.Info(sb.String())
+	sb.WriteString("\n====================================================================================================")
+	fmt.Println(sb.String())
 }

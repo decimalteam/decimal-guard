@@ -96,6 +96,9 @@ func (w *Watcher) Start() (err error) {
 	}
 	defer w.client.Stop()
 
+	// Retrieve blockchain info
+	w.updateCommon()
+
 	// Subscribe to new block events
 	const queryNewBlock = "tm.event = 'NewBlock'"
 	chanBlocks, err := w.client.Subscribe(ctx, subscriber, queryNewBlock, capacity)
@@ -214,19 +217,18 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 		return
 	}
 
-	w.logger.Info(fmt.Sprintf("[%s] Received new block #%d", w.endpoint, event.Block.Height))
+	w.logger.Info(fmt.Sprintf("[%s] Received new block %d", w.endpoint, event.Block.Height))
 
 	// Save latest received block
 	w.latestBlock = event.Block.Height
 	w.latestBlockTime = event.Block.Time
 
-	updateCommon := !w.validatorsRetrieved
 	if !w.validatorsRetrieved {
 
 		w.logger.Info(fmt.Sprintf("[%s] Retrieving set of validators for block %d", w.endpoint, event.Block.Height))
 
 		// Retrieve set of validators expected in the block
-		validators, e := w.client.Validators(&event.Block.LastCommit.Height, 0, 1000)
+		validators, e := w.client.Validators(&event.Block.Height, 0, 1000)
 		if e != nil {
 			err = e
 			return
@@ -260,7 +262,7 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	w.missedBlocks[int(w.latestBlock)%len(w.missedBlocks)] = !signed
 
 	// Emit new block event to the guard
-	w.chanEventNewBlock <- w.onNewBlock(event.Block.Height, w.countMissedBlocks(), updateCommon)
+	w.chanEventNewBlock <- w.onNewBlock(event.Block.Height, w.countMissedBlocks())
 
 	return
 }
@@ -292,11 +294,7 @@ func (w *Watcher) handleEventValidatorSetUpdates(result ctypes.ResultEvent) (err
 ////////////////////////////////////////////////////////////////////////////////
 
 // onNewBlock creates and returns new block event.
-func (w *Watcher) onNewBlock(newBlock int64, missedBlocks int, updateCommon ...bool) eventNewBlock {
-	// Retrieve blockchain info (if required)
-	if len(updateCommon) > 0 && updateCommon[0] {
-		w.updateCommon()
-	}
+func (w *Watcher) onNewBlock(newBlock int64, missedBlocks int) eventNewBlock {
 	return eventNewBlock{
 		eventBase: eventBase{
 			endpoint:        w.endpoint,
@@ -310,11 +308,7 @@ func (w *Watcher) onNewBlock(newBlock int64, missedBlocks int, updateCommon ...b
 }
 
 // onNoBlock creates and returns no block event.
-func (w *Watcher) onNoBlock(latestBlock int64, updateCommon ...bool) eventNoBlock {
-	// Retrieve blockchain info (if required)
-	if len(updateCommon) > 0 && updateCommon[0] {
-		w.updateCommon()
-	}
+func (w *Watcher) onNoBlock(latestBlock int64) eventNoBlock {
 	return eventNoBlock{
 		eventBase: eventBase{
 			endpoint:        w.endpoint,
