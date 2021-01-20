@@ -15,13 +15,13 @@ func main() {
 	}
 
 	// Create validator guard
-	guard, err := guard.NewGuard(config)
+	g, err := guard.NewGuard(*config)
 	if err != nil {
 		panic(err)
 	}
 
 	// Run created validator guard
-	err = guard.Run()
+	err = g.Run()
 	if err != nil {
 		panic(err)
 	}

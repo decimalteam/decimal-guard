@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,7 +15,7 @@ import (
 
 // Guard is an object managing set of watchers connected to different nodes.
 type Guard struct {
-	config *Config
+	config Config
 
 	// Configured watchers are stored by node connection endpoints
 	watchers []*Watcher
@@ -27,13 +28,14 @@ type Guard struct {
 }
 
 // NewGuard creates new Guard instance.
-func NewGuard(config *Config) (guard *Guard, err error) {
+func NewGuard(config Config) (*Guard, error) {
 	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
 	// Exit if new block timeout is not valid
 	if config.NewBlockTimeout < 7 {
-		logger.Error("ERROR: Environment variable NEW_BLOCK_TIMEOUT is not set up or set to value less than 7 (seconds)!")
-		return
+		err := "ERROR: Environment variable NEW_BLOCK_TIMEOUT is not set up or set to value less than 7 (seconds)! "
+		logger.Error(err)
+		return nil, errors.New(err)
 	}
 
 	// Prepare channels for events
@@ -45,24 +47,22 @@ func NewGuard(config *Config) (guard *Guard, err error) {
 	endpoints := strings.Split(config.NodesEndpoints, ",")
 	watchers := make([]*Watcher, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		w, e := NewWatcher(config, strings.TrimSpace(endpoint), chanEventStatus, chanEventNewBlock, chanEventNoBlock)
-		if e != nil {
-			err = e
-			return
+		w, err := NewWatcher(config, strings.TrimSpace(endpoint), chanEventStatus, chanEventNewBlock, chanEventNoBlock)
+		if err != nil {
+			return nil, err
 		}
 		watchers = append(watchers, w)
 	}
 
 	// Create guard instance
-	guard = &Guard{
+	return &Guard{
 		config:            config,
 		watchers:          watchers,
 		chanEventStatus:   chanEventStatus,
 		chanEventNewBlock: chanEventNewBlock,
 		chanEventNoBlock:  chanEventNoBlock,
 		logger:            logger,
-	}
-	return
+	}, nil
 }
 
 // Run starts watchers and stops only when application is closed.

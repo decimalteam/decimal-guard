@@ -18,7 +18,7 @@ import (
 
 // Watcher is an object implementing necessary validator watcher functions.
 type Watcher struct {
-	config   *Config
+	config   Config
 	endpoint string
 
 	client         *client.HTTP
@@ -44,29 +44,28 @@ type Watcher struct {
 
 // NewWatcher creates new Watcher instance.
 func NewWatcher(
-	config *Config,
+	config Config,
 	endpoint string,
 	chanEventStatus chan<- eventStatus,
 	chanEventNewBlock chan<- eventNewBlock,
 	chanEventNoBlock chan<- eventNoBlock,
-) (watcher *Watcher, err error) {
-	// Create Tendermint client instance and connect it to the node
-	client, err := client.NewHTTP(endpoint, "/websocket")
+) (*Watcher, error) {
+	// Create Tendermint c instance and connect it to the node
+	c, err := client.NewHTTP(endpoint, "/websocket")
 	if err != nil {
-		return
+		return nil, err
 	}
-	watcher = &Watcher{
+	return &Watcher{
 		config:            config,
 		endpoint:          endpoint,
-		client:            client,
+		client:            c,
 		missedBlocks:      make([]bool, config.MissedBlocksWindow),
 		chanEventStatus:   chanEventStatus,
 		chanEventNewBlock: chanEventNewBlock,
 		chanEventNoBlock:  chanEventNoBlock,
 		chanDisconnect:    make(chan error, 1),
 		logger:            log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
-	}
-	return
+	}, nil
 }
 
 // Start connects validator watcher to the node and starts listening to blocks.
@@ -88,6 +87,10 @@ func (w *Watcher) Start() (err error) {
 
 	// Logs
 	w.logger.Info(fmt.Sprintf("[%s] Connecting to the node...", w.endpoint))
+
+	// Lock the wait group
+	w.waitGroup.Add(1)
+	defer w.waitGroup.Done()
 
 	// Start Tendermint HTTP client
 	err = w.client.Start()
@@ -112,10 +115,6 @@ func (w *Watcher) Start() (err error) {
 	if err != nil {
 		return
 	}
-
-	// Lock the wait group
-	w.waitGroup.Add(1)
-	defer w.waitGroup.Done()
 
 	// Main loop
 	for {
