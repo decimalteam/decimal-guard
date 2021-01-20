@@ -105,6 +105,14 @@ func (guard *Guard) Run() (err error) {
 	// Main loop
 	for {
 		select {
+		case v := <-chanInterrupt:
+			switch v {
+			case os.Interrupt:
+				guard.logger.Info("Interrupt signal received. Shutting down...")
+			case os.Kill:
+				guard.logger.Info("Kill signal received. Shutting down...")
+			}
+			return
 		case <-guard.chanEventStatus:
 			// Chain status is retrieved from the node
 		case e := <-guard.chanEventNewBlock:
@@ -170,14 +178,6 @@ func (guard *Guard) Run() (err error) {
 				))
 				return
 			}
-		case v := <-chanInterrupt:
-			switch v {
-			case os.Interrupt:
-				guard.logger.Info("Interrupt signal received. Shutting down...")
-			case os.Kill:
-				guard.logger.Info("Kill signal received. Shutting down...")
-			}
-			return
 		}
 	}
 }
