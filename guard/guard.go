@@ -147,7 +147,6 @@ func (guard *Guard) Run() (err error) {
 				"ERROR: There are no any new blocks during %d seconds (latest block %d at %s)! Shutting down...",
 				guard.config.NewBlockTimeout, e.latestBlock, e.latestBlockTime,
 			))
-			return
 		case <-printTicker.C:
 			// Log guard state
 			guard.printState()
@@ -176,7 +175,6 @@ func (guard *Guard) Run() (err error) {
 					"ERROR: There are no any new blocks during %d seconds! Shutting down...",
 					guard.config.NewBlockTimeout,
 				))
-				return
 			}
 		}
 	}
