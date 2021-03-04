@@ -192,7 +192,7 @@ func (w *Watcher) broadcastSetOfflineTx(
 	}
 	// Wait until transaction is done
 	for {
-		resultTx, err = w.client.Tx(resultBroadcast.Hash.Bytes(), true)
+		resultTx, err = w.client.Tx(resultBroadcast.Hash.Bytes(), false)
 		if err != nil {
 			w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
 			time.Sleep(time.Second)

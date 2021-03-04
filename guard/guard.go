@@ -212,9 +212,9 @@ func (guard *Guard) setOffline() (err error) {
 		offliner := &Offliner{
 			watcher:      watcher,
 			endpoint:     watcher.endpoint,
-			chanTxHash:   make(chan *ctypes.ResultBroadcastTx),
-			chanTxResult: make(chan *ctypes.ResultTx),
-			chanError:    make(chan error),
+			chanTxHash:   make(chan *ctypes.ResultBroadcastTx, 1024),
+			chanTxResult: make(chan *ctypes.ResultTx, 1024),
+			chanError:    make(chan error, 1024),
 			chanStop:     make(chan interface{}),
 		}
 		offliners = append(offliners, offliner)
