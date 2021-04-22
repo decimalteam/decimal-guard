@@ -3,6 +3,7 @@ package guard
 import (
 	"errors"
 	"fmt"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"os"
 	"os/signal"
 	"strings"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/tendermint/tendermint/libs/log"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
+
+	decimal "bitbucket.org/decimalteam/go-node/config"
 )
 
 // Guard is an object managing set of watchers connected to different nodes.
@@ -79,15 +82,6 @@ func (guard *Guard) Run() (err error) {
 		}
 	}()
 
-	// Start watchers
-	for _, w := range guard.watchers {
-		go func(w *Watcher) {
-			if err := w.Start(); err != nil {
-				w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
-			}
-		}(w)
-	}
-
 	// Ensure set-offline tx is valid
 	err = guard.validateSetOfflineTx()
 	if err != nil {
@@ -96,6 +90,23 @@ func (guard *Guard) Run() (err error) {
 			err,
 		))
 		return
+	}
+
+	consAddress, err := sdk.ConsAddressFromHex(guard.config.ValidatorAddress)
+	if err != nil {
+		guard.logger.Error(err.Error())
+		return
+	}
+	sdk.GetConfig().SetBech32PrefixForConsensusNode(decimal.DecimalPrefixConsAddr, decimal.DecimalPrefixConsPub)
+	guard.logger.Info(fmt.Sprintf("ConsValidatorAddress = %s", consAddress.String()))
+
+	// Start watchers
+	for _, w := range guard.watchers {
+		go func(w *Watcher) {
+			if err := w.Start(); err != nil {
+				w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
+			}
+		}(w)
 	}
 
 	// Prepare tickers

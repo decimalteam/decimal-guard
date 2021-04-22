@@ -40,6 +40,7 @@ type Watcher struct {
 
 	logger    log.Logger
 	waitGroup sync.WaitGroup
+	mtx       sync.Mutex
 }
 
 // NewWatcher creates new Watcher instance.
@@ -65,6 +66,7 @@ func NewWatcher(
 		chanEventNoBlock:  chanEventNoBlock,
 		chanDisconnect:    make(chan error, 1),
 		logger:            log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
+		mtx:               sync.Mutex{},
 	}, nil
 }
 
@@ -258,7 +260,9 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	}
 
 	// Update missed blocks container
+	w.mtx.Lock()
 	w.missedBlocks[int(w.latestBlock)%len(w.missedBlocks)] = !signed
+	w.mtx.Unlock()
 
 	// Emit new block event to the guard
 	w.chanEventNewBlock <- w.onNewBlock(event.Block.Height, w.countMissedBlocks())
@@ -332,10 +336,12 @@ func (w *Watcher) updateCommon() {
 // countMissedBlocks counts how many blocks are missed to sign in the watching blocks windows.
 func (w *Watcher) countMissedBlocks() int {
 	result := 0
+	w.mtx.Lock()
 	for _, missed := range w.missedBlocks {
 		if missed {
 			result++
 		}
 	}
+	w.mtx.Unlock()
 	return result
 }
