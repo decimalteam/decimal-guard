@@ -125,12 +125,14 @@ func (w *Watcher) Start() (err error) {
 			// Handle received event
 			err = w.handleEventNewBlock(result)
 			if err != nil {
+				w.logger.Error(err.Error())
 				return
 			}
 		case result := <-chanValidatorSetUpdates:
 			// Handle received event
 			err = w.handleEventValidatorSetUpdates(result)
 			if err != nil {
+				w.logger.Error(err.Error())
 				return
 			}
 		case <-time.After(time.Duration(w.config.NewBlockTimeout) * time.Second):
@@ -253,6 +255,7 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 		signed = false
 		for _, s := range event.Block.LastCommit.Signatures {
 			if strings.EqualFold(s.ValidatorAddress.String(), w.config.ValidatorAddress) {
+				w.logger.Info(fmt.Sprintf("Signature length = %d", len(s.Signature)))
 				signed = len(s.Signature) > 0
 				break
 			}
@@ -261,7 +264,7 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 
 	// Update missed blocks container
 	w.mtx.Lock()
-	w.missedBlocks[int(w.latestBlock)%len(w.missedBlocks)] = !signed
+	w.missedBlocks[int(w.latestBlock)%w.config.MissedBlocksWindow] = !signed
 	w.mtx.Unlock()
 
 	// Emit new block event to the guard
@@ -280,13 +283,16 @@ func (w *Watcher) handleEventValidatorSetUpdates(result ctypes.ResultEvent) (err
 
 	w.logger.Info(fmt.Sprintf("[%s] Received new validator set updates", w.endpoint))
 
-	w.signatureExpected = false
+	w.logger.Info(fmt.Sprintf("%v+", event.ValidatorUpdates))
 	for _, validator := range event.ValidatorUpdates {
-		if strings.EqualFold(hex.EncodeToString(validator.Address.Bytes()), w.config.ValidatorAddress) {
-			w.signatureExpected = true
+		if strings.EqualFold(validator.Address.String(), w.config.ValidatorAddress) {
+			if validator.VotingPower == 0 {
+				w.signatureExpected = false
+			} else {
+				w.signatureExpected = true
+			}
 			break
 		}
-
 	}
 
 	return
