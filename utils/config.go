@@ -11,7 +11,19 @@ import (
 )
 
 func init() {
+	dir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	err = os.Chdir(os.Getenv("HOME") + "/.decimal/daemon/config")
+	if err != nil {
+		panic(err)
+	}
 	godotenv.Load()
+	err = os.Chdir(dir)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // TODO: Read from some remote config storage instead of environment variables.
