@@ -3,12 +3,13 @@ package guard
 import (
 	"errors"
 	"fmt"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
 	"time"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/tendermint/tendermint/libs/log"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
@@ -97,8 +98,11 @@ func (guard *Guard) Run() (err error) {
 		guard.logger.Error(err.Error())
 		return
 	}
+
 	sdk.GetConfig().SetBech32PrefixForConsensusNode(decimal.DecimalPrefixConsAddr, decimal.DecimalPrefixConsPub)
 	guard.logger.Info(fmt.Sprintf("ConsValidatorAddress = %s", consAddress.String()))
+
+	// API = decapi.NewAPI("https://testnet-gate.decimalchain.com/api")
 
 	// Start watchers
 	for _, w := range guard.watchers {

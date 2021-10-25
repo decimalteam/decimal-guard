@@ -6,14 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	ttypes "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/rpc/client"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"github.com/tendermint/tendermint/types"
+	// ntypes "bitbucket.org/decimalteam/go-node/x/gov/internal/types"
 )
 
 // Watcher is an object implementing necessary validator watcher functions.
@@ -262,6 +266,63 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 		}
 	}
 
+	// var (
+	// 	gracePeriodStart int64 = 0
+	// 	gracePeriodEnd   int64 = 0
+	// )
+
+	// var decTX auth.StdTx
+
+	for _, tx := range event.Block.Txs {
+		// API.Codec().UnmarshalBinaryLengthPrefixed(tx, &decTX)
+		// for _, msg := range decTX.Msgs {
+		// 	fmt.Printf("%+v\n", msg)
+		// }
+
+		resultTx, err := w.client.Tx(tx.Hash(), false)
+		if err != nil {
+			break
+		}
+
+		actionUpgradeExist := false
+
+		for _, event := range resultTx.TxResult.Events {
+			if event.Type != sdk.EventTypeMessage {
+				continue
+			}
+
+			if actionUpgradeExist {
+				// "software_upgrade" -> ntypes.AttributeKeyUpgradeHeight
+				height, ok := getValueInEvent(event, "upgrade_height")
+				if !ok {
+					continue
+				}
+				res, err := strconv.ParseInt(height, 10, 64)
+				if err != nil {
+					continue
+				}
+
+				UpdateInfo.Push(res)
+				break
+			}
+
+			val, ok := getValueInEvent(event, sdk.AttributeKeyAction)
+
+			// "software_upgrade" -> ntypes.AttributeKeyUpgradeHeight
+			if ok && val == "software_upgrade" {
+				actionUpgradeExist = true
+			}
+		}
+	}
+
+	gracePeriodStart := UpdateInfo.Load()
+	gracePeriodEnd := gracePeriodStart + (OneHour * 24)
+
+	// fmt.Println(gracePeriodStart, gracePeriodEnd)
+	if gracePeriodStart != -1 && event.Block.Height >= gracePeriodStart && event.Block.Height <= gracePeriodEnd {
+		signed = true
+	}
+
 	// Update missed blocks container
 	w.mtx.Lock()
 	w.missedBlocks[int(w.latestBlock)%w.config.MissedBlocksWindow] = !signed
@@ -270,6 +331,16 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	// Emit new block event to the guard
 	w.chanEventNewBlock <- w.onNewBlock(event.Block.Height, w.countMissedBlocks())
 
+	return
+}
+
+func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
+	for _, attr := range event.Attributes {
+		if key == string(attr.Key) {
+			value = string(attr.Value)
+			ok = true
+		}
+	}
 	return
 }
 
