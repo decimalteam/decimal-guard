@@ -7,6 +7,8 @@ require (
 	bitbucket.org/decimalteam/go-node v1.0.4
 	github.com/cosmos/cosmos-sdk v0.38.4
 	github.com/joho/godotenv v1.3.0
+	github.com/mkideal/cli v0.2.7 // indirect
 	github.com/stretchr/testify v1.5.1
 	github.com/tendermint/tendermint v0.33.3
+	google.golang.org/grpc v1.28.0 // indirect
 )
