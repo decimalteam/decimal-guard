@@ -266,19 +266,38 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 		}
 	}
 
-	// var (
-	// 	gracePeriodStart int64 = 0
-	// 	gracePeriodEnd   int64 = 0
-	// )
+	// Check software_upgrade TX and set grace period
+	if w.config.EnableGracePeriod {
+		w.checkSoftwareUpgradeTX(event, &signed)
+	}
 
-	// var decTX auth.StdTx
+	// Update missed blocks container
+	w.mtx.Lock()
+	w.missedBlocks[int(w.latestBlock)%w.config.MissedBlocksWindow] = !signed
+	w.mtx.Unlock()
 
+	// Emit new block event to the guard
+	w.chanEventNewBlock <- w.onNewBlock(event.Block.Height, w.countMissedBlocks())
+
+	return
+}
+
+// Get value from event by key.
+func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
+	for _, attr := range event.Attributes {
+		if key == string(attr.Key) {
+			value = string(attr.Value)
+			ok = true
+		}
+	}
+	return
+}
+
+// Parse block and find transaction "software_upgrade".
+// If transaction exists then saved param "upgrade_height" into file "update_block.json"
+// and set grace period = [update_block ; update_block+24hours].
+func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *bool) {
 	for _, tx := range event.Block.Txs {
-		// API.Codec().UnmarshalBinaryLengthPrefixed(tx, &decTX)
-		// for _, msg := range decTX.Msgs {
-		// 	fmt.Printf("%+v\n", msg)
-		// }
-
 		resultTx, err := w.client.Tx(tx.Hash(), false)
 		if err != nil {
 			break
@@ -318,30 +337,9 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	gracePeriodStart := UpdateInfo.Load()
 	gracePeriodEnd := gracePeriodStart + (OneHour / 4)
 
-	// fmt.Println(gracePeriodStart, gracePeriodEnd)
 	if gracePeriodStart != -1 && event.Block.Height >= gracePeriodStart && event.Block.Height <= gracePeriodEnd {
-		signed = true
+		*signed = true
 	}
-
-	// Update missed blocks container
-	w.mtx.Lock()
-	w.missedBlocks[int(w.latestBlock)%w.config.MissedBlocksWindow] = !signed
-	w.mtx.Unlock()
-
-	// Emit new block event to the guard
-	w.chanEventNewBlock <- w.onNewBlock(event.Block.Height, w.countMissedBlocks())
-
-	return
-}
-
-func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
-	for _, attr := range event.Attributes {
-		if key == string(attr.Key) {
-			value = string(attr.Value)
-			ok = true
-		}
-	}
-	return
 }
 
 // handleEventValidatorSetUpdates handles validator set updates events received from watchers.
