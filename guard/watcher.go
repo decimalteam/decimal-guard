@@ -316,7 +316,7 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	}
 
 	gracePeriodStart := UpdateInfo.Load()
-	gracePeriodEnd := gracePeriodStart + (OneHour * 24)
+	gracePeriodEnd := gracePeriodStart + (OneHour / 4)
 
 	// fmt.Println(gracePeriodStart, gracePeriodEnd)
 	if gracePeriodStart != -1 && event.Block.Height >= gracePeriodStart && event.Block.Height <= gracePeriodEnd {
