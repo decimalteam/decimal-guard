@@ -1,8 +1,10 @@
 package guard
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"os"
 	"os/signal"
 	"strings"
@@ -11,10 +13,8 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/tendermint/tendermint/libs/log"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
-
 	decimal "bitbucket.org/decimalteam/go-node/config"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
 // Guard is an object managing set of watchers connected to different nodes.
@@ -152,16 +152,22 @@ func (guard *Guard) Run() (err error) {
 			return
 		case e := <-guard.chanEventNoBlock:
 			// Ensure there is at lease one connected node
+			var hasAtLeastOneConnectedNode bool
+
 			for _, w := range guard.watchers {
 				if time.Now().Sub(w.latestBlockTime) <= time.Duration(w.config.NewBlockTimeout)*time.Second {
-					continue
+					hasAtLeastOneConnectedNode = true
+					break
 				}
 			}
-			// Log error
-			guard.logger.Error(fmt.Sprintf(
-				"ERROR: There are no any new blocks during %d seconds (latest block %d at %s)! Shutting down...",
-				guard.config.NewBlockTimeout, e.latestBlock, e.latestBlockTime,
-			))
+
+			if !hasAtLeastOneConnectedNode {
+				// Log error
+				guard.logger.Error(fmt.Sprintf(
+					"ERROR: There are no any new blocks during %d seconds (latest block %d at %s)!",
+					guard.config.NewBlockTimeout, e.latestBlock, e.latestBlockTime,
+				))
+			}
 		case <-printTicker.C:
 			// Log guard state
 			guard.printState()
@@ -187,7 +193,7 @@ func (guard *Guard) Run() (err error) {
 			if !connected {
 				// Log error
 				guard.logger.Error(fmt.Sprintf(
-					"ERROR: There are no any new blocks during %d seconds! Shutting down...",
+					"ERROR: There are no any new blocks during %d seconds!",
 					guard.config.NewBlockTimeout,
 				))
 			}
@@ -206,104 +212,74 @@ func (guard *Guard) validateSetOfflineTx() (err error) {
 }
 
 // setOffline tries to set guarding validator offline using all available nodes.
-func (guard *Guard) setOffline() (err error) {
+func (guard *Guard) setOffline() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
 
-	type Offliner struct {
-		watcher      *Watcher
-		endpoint     string
-		chanTxHash   chan *ctypes.ResultBroadcastTx
-		chanTxResult chan *ctypes.ResultTx
-		chanError    chan error
-		chanStop     chan interface{}
-	}
+	var txAlreadyBroadcast bool
 
-	wg := sync.WaitGroup{}
-	chanTxHash := make(chan *ctypes.ResultBroadcastTx, len(guard.watchers))
-	chanTxResult := make(chan *ctypes.ResultTx, len(guard.watchers))
+	chanResultTx := make(chan *ctypes.ResultTx, len(guard.watchers))
 
-	// Prepare everything for mass tx broadcasting
-	offliners := make([]*Offliner, 0, len(guard.watchers))
-	for _, watcher := range guard.watchers {
-		offliner := &Offliner{
-			watcher:      watcher,
-			endpoint:     watcher.endpoint,
-			chanTxHash:   make(chan *ctypes.ResultBroadcastTx, 1024),
-			chanTxResult: make(chan *ctypes.ResultTx, 1024),
-			chanError:    make(chan error, 1024),
-			chanStop:     make(chan interface{}),
-		}
-		offliners = append(offliners, offliner)
-	}
-
-	// Start trying to broadcast set-offline tx to all available nodes
-	wg.Add(len(offliners))
-	for _, o := range offliners {
-		go func(o *Offliner) {
+	var wg sync.WaitGroup
+	wg.Add(len(guard.watchers))
+	for _, w := range guard.watchers {
+		go func(w *Watcher) {
 			defer wg.Done()
-			go func() {
-				select {
-				case txHash := <-o.chanTxHash:
-					guard.logger.Info(fmt.Sprintf(
-						"[%s] Set-offline tx successfully broadcasted: %s",
-						o.endpoint, txHash.Hash.String(),
-					))
-					chanTxHash <- txHash
-				case tx := <-o.chanTxResult:
-					guard.logger.Info(fmt.Sprintf(
-						"[%s] Set-offline tx confirmed: %s",
-						o.endpoint, tx.TxResult.String(),
-					))
-					chanTxResult <- tx
-				case <-o.chanError:
-					guard.logger.Error(fmt.Sprintf(
-						"[%s] ERROR: Unable to broadcast set-offline tx: %s",
-						o.endpoint, err,
-					))
-				case <-o.chanStop:
-					return
-				}
-			}()
-			err := o.watcher.broadcastSetOfflineTx(o.chanTxHash, o.chanTxResult, o.chanStop)
-			if err != nil {
-				o.chanError <- err
-			}
-		}(o)
-	}
 
-	// Wait until tx hash is received
-	var txHash *ctypes.ResultBroadcastTx
-	txHashTimeout := time.After(5 * time.Minute)
-	select {
-	case txHash = <-chanTxHash:
-		guard.logger.Info(fmt.Sprintf(
-			"Set-offline tx successfully broadcasted: %s",
-			txHash.Hash.String(),
-		))
-	case <-txHashTimeout:
-		guard.logger.Error("ERROR: Unable to broadcast set-offline tx during 5 minutes")
-		return
+			var broadcastTx *ctypes.ResultBroadcastTx
+			var err error
+
+			for !txAlreadyBroadcast {
+				broadcastTx, err = w.broadcastSetOfflineTx()
+				if err != nil {
+					w.logger.Info(fmt.Sprintf(
+						"[%s] WARNING: Unable to broadcast set-offline tx: %s. Retry...", w.endpoint, err,
+					))
+					continue
+				}
+
+				txAlreadyBroadcast = true
+			}
+
+			if broadcastTx == nil {
+				return
+			}
+
+			childCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			defer cancel()
+
+			confirmedTx, err := w.confirmSetOfflineTx(childCtx, broadcastTx)
+			if err != nil && err != context.Canceled {
+				w.logger.Info(fmt.Sprintf(
+					"[%s] ERROR: Unable to confirm set-offline tx: %s.", w.endpoint, err,
+				))
+				return
+			}
+
+			chanResultTx <- confirmedTx
+		}(w)
 	}
 
 	// Wait until tx is confirmed and execution result is available
 	var tx *ctypes.ResultTx
-	txTimeout := time.After(10 * time.Minute)
 	select {
-	case tx = <-chanTxResult:
+	case <-ctx.Done():
+		guard.logger.Error("ERROR: Unable to wait for set-offline tx confirmation during 10 minutes")
+		return ctx.Err()
+	case tx = <-chanResultTx:
+		cancel()
 		guard.logger.Info(fmt.Sprintf(
 			"Set-offline tx confirmed: %s", tx.TxResult.String(),
 		))
-	case <-txTimeout:
-		guard.logger.Error("ERROR: Unable to wait for set-offline tx confirmation during 10 minutes")
-		return
 	}
 
-	// Check if tx was successed and confirmed by the network
+	// Check if tx was successful and confirmed by the network
 	if tx.TxResult.IsErr() {
 		guard.logger.Error(fmt.Sprintf(
 			"ERROR: Set-offline tx was failed and is not confirmed by the network: %s",
 			tx.TxResult.String(),
 		))
-		return
+		return errors.New("tx was failed")
 	}
 
 	// Wait until everything is done
@@ -312,7 +288,7 @@ func (guard *Guard) setOffline() (err error) {
 	// Log success
 	guard.logger.Info("Validator successfully set offline and hopefully prevented stake lost!")
 
-	return
+	return nil
 }
 
 // printState prints current state of the guard to the standard output.

@@ -176,40 +176,46 @@ func (w *Watcher) IsRunning() bool {
 ////////////////////////////////////////////////////////////////////////////////
 
 // broadcastSetOfflineTx broadcasts `validator/set_offline` transaction from validator operator account.
-func (w *Watcher) broadcastSetOfflineTx(
-	chanTxHash chan *ctypes.ResultBroadcastTx,
-	chanTxResult chan *ctypes.ResultTx,
-	chanStop chan interface{},
-) (err error) {
+func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 	data, err := hex.DecodeString(w.config.SetOfflineTx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var resultBroadcast *ctypes.ResultBroadcastTx
+
+	return w.client.BroadcastTxSync(data)
+}
+
+// confirmSetOfflineTx wait confirmation `validator/set_offline` transaction from validator operator account.
+func (w *Watcher) confirmSetOfflineTx(
+	ctx context.Context,
+	broadcastTx *ctypes.ResultBroadcastTx,
+) (*ctypes.ResultTx, error) {
+	queryTx := fmt.Sprintf("tm.event = 'Tx' AND tx.hash = '%s'", broadcastTx.Hash.String())
+
+	chanTmEventTx, err := w.client.Subscribe(context.Background(), w.endpoint, queryTx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait until tx is committed
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-chanTmEventTx:
+	}
+
 	var resultTx *ctypes.ResultTx
-	// Broadcast transaction synchronously
-	for {
-		resultBroadcast, err = w.client.BroadcastTxSync(data)
-		if err != nil {
-			w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to broadcast set-offline tx: %s", w.endpoint, err))
-			time.Sleep(time.Second)
-			continue
+	for ctx.Err() == nil {
+		resultTx, err = w.client.Tx(broadcastTx.Hash.Bytes(), false)
+		if err == nil {
+			break
 		}
-		chanTxHash <- resultBroadcast
-		break
+
+		w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
+		time.Sleep(time.Second)
 	}
-	// Wait until transaction is done
-	for {
-		resultTx, err = w.client.Tx(resultBroadcast.Hash.Bytes(), false)
-		if err != nil {
-			w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
-			time.Sleep(time.Second)
-			continue
-		}
-		chanTxResult <- resultTx
-		break
-	}
-	return
+
+	return resultTx, ctx.Err()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
