@@ -117,15 +117,6 @@ func (guard *Guard) Run() (err error) {
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
 
-	//go func() {
-	//	time.Sleep(12*time.Second)
-	//
-	//	for _, w := range guard.watchers {
-	//		fmt.Println("STOP BY HADSNSA")
-	//		w.client.Stop()
-	//	}
-	//}()
-
 	// Main loop
 	for {
 		select {
