@@ -183,6 +183,7 @@ func (guard *Guard) Run() (err error) {
 						}
 					}(w)
 				} else {
+					w.IsRestarting = false
 					connected = true
 				}
 			}

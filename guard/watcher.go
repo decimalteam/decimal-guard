@@ -27,6 +27,7 @@ type Watcher struct {
 
 	client         *client.HTTP
 	connectingTime time.Time
+	IsRestarting   bool
 
 	status          *ctypes.ResultStatus
 	network         string
@@ -158,21 +159,17 @@ func (w *Watcher) Start() (err error) {
 
 // Restart resets http client of validator and start it again.
 func (w *Watcher) Restart() error {
-	if w.IsRunning() {
+	if w.IsRunning() || w.IsRestarting {
 		return nil
 	}
 
-	if !w.connectingTime.IsZero() {
-		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
-		if reconnectingTime.After(time.Now()) {
-			return nil
-		}
-	}
+	w.IsRestarting = true
 
 	// if the client has not been stopped yet, then we are waiting for it to stop
 	select {
 	case <-w.client.Quit():
-	case <-time.After(time.Second):
+		w.logger.Info(fmt.Sprintf("[%s] HTTP Service quit", w.endpoint))
+	case <-time.After(3 * time.Second):
 	}
 
 	err := w.client.Reset()
@@ -180,6 +177,7 @@ func (w *Watcher) Restart() error {
 		return err
 	}
 
+	w.validatorsRetrieved = false
 	w.chanDisconnect <- struct{}{}
 	w.waitGroup.Wait()
 
