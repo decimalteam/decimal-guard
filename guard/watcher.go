@@ -48,14 +48,6 @@ type Watcher struct {
 	mtx       sync.Mutex
 }
 
-type BaseService struct {
-	*client.WSEvents
-}
-
-func (fs BaseService) OnReset() error {
-	return nil
-}
-
 // NewWatcher creates new Watcher instance.
 func NewWatcher(
 	config Config,
@@ -89,38 +81,12 @@ func NewWatcher(
 	}, nil
 }
 
-// Restart resets http client of validator and start it again.
-func (w *Watcher) Restart() error {
-	if w.IsRunning() {
-		return nil
-	}
-
-	if !w.connectingTime.IsZero() {
-		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
-		if reconnectingTime.After(time.Now()) {
-			return nil
-		}
-	}
-
-	time.Sleep(time.Second)
-
-	err := w.client.Reset()
-	if err != nil {
-		return err
-	}
-
-	w.chanDisconnect <- struct{}{}
-
-	return w.Start()
-}
-
 // Start connects validator watcher to the node and starts listening to blocks.
 func (w *Watcher) Start() (err error) {
-	w.chanDisconnect = make(chan struct{})
-
 	if w.IsRunning() {
 		return
 	}
+
 	if !w.connectingTime.IsZero() {
 		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
 		if reconnectingTime.After(time.Now()) {
@@ -128,6 +94,7 @@ func (w *Watcher) Start() (err error) {
 		}
 	}
 	w.connectingTime = time.Now()
+	w.chanDisconnect = make(chan struct{})
 
 	ctx := context.Background()
 	subscriber := "watcher"
@@ -190,6 +157,36 @@ func (w *Watcher) Start() (err error) {
 			return
 		}
 	}
+}
+
+// Restart resets http client of validator and start it again.
+func (w *Watcher) Restart() error {
+	if w.IsRunning() {
+		return nil
+	}
+
+	if !w.connectingTime.IsZero() {
+		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
+		if reconnectingTime.After(time.Now()) {
+			return nil
+		}
+	}
+
+	// if the client has not been stopped yet, then we are waiting for it to stop
+	select {
+	case <-w.client.Quit():
+	case <-time.After(time.Second):
+	}
+
+	err := w.client.Reset()
+	if err != nil {
+		return err
+	}
+
+	w.chanDisconnect <- struct{}{}
+	w.waitGroup.Wait()
+
+	return w.Start()
 }
 
 // Stop closes existing connection to the node.
