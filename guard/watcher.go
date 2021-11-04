@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/tendermint/tendermint/libs/service"
 	"os"
 	"strconv"
 	"strings"
@@ -64,9 +63,7 @@ func NewWatcher(
 
 	// It's necessary to override OnReset method to allow OnStart/OnStop to be called again and restart service
 	// https://github.com/tendermint/tendermint/blob/master/libs/service/service.go#L66
-	c.WSEvents.BaseService = *service.NewBaseService(nil, "WSEvents", BaseService{
-		c.WSEvents,
-	})
+	c.WSEvents.BaseService = NewBaseService("WSEvents", c.WSEvents)
 
 	return &Watcher{
 		config:            config,
