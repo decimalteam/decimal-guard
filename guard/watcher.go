@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/service"
 	"os"
 	"strconv"
 	"strings"
@@ -40,11 +41,19 @@ type Watcher struct {
 	chanEventStatus   chan<- eventStatus
 	chanEventNewBlock chan<- eventNewBlock
 	chanEventNoBlock  chan<- eventNoBlock
-	chanDisconnect    chan error
+	chanDisconnect    chan struct{}
 
 	logger    log.Logger
 	waitGroup sync.WaitGroup
 	mtx       sync.Mutex
+}
+
+type BaseService struct {
+	*client.WSEvents
+}
+
+func (fs BaseService) OnReset() error {
+	return nil
 }
 
 // NewWatcher creates new Watcher instance.
@@ -60,6 +69,13 @@ func NewWatcher(
 	if err != nil {
 		return nil, err
 	}
+
+	// It's necessary to override OnReset method to allow OnStart/OnStop to be called again and restart service
+	// https://github.com/tendermint/tendermint/blob/master/libs/service/service.go#L66
+	c.WSEvents.BaseService = *service.NewBaseService(nil, "WSEvents", BaseService{
+		c.WSEvents,
+	})
+
 	return &Watcher{
 		config:            config,
 		endpoint:          endpoint,
@@ -68,14 +84,40 @@ func NewWatcher(
 		chanEventStatus:   chanEventStatus,
 		chanEventNewBlock: chanEventNewBlock,
 		chanEventNoBlock:  chanEventNoBlock,
-		chanDisconnect:    make(chan error, 1),
 		logger:            log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
 		mtx:               sync.Mutex{},
 	}, nil
 }
 
+// Restart resets http client of validator and start it again.
+func (w *Watcher) Restart() error {
+	if w.IsRunning() {
+		return nil
+	}
+
+	if !w.connectingTime.IsZero() {
+		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
+		if reconnectingTime.After(time.Now()) {
+			return nil
+		}
+	}
+
+	time.Sleep(time.Second)
+
+	err := w.client.Reset()
+	if err != nil {
+		return err
+	}
+
+	w.chanDisconnect <- struct{}{}
+
+	return w.Start()
+}
+
 // Start connects validator watcher to the node and starts listening to blocks.
 func (w *Watcher) Start() (err error) {
+	w.chanDisconnect = make(chan struct{})
+
 	if w.IsRunning() {
 		return
 	}
@@ -151,7 +193,7 @@ func (w *Watcher) Start() (err error) {
 }
 
 // Stop closes existing connection to the node.
-func (w *Watcher) Stop(err error) {
+func (w *Watcher) Stop() {
 	if !w.IsRunning() {
 		return
 	}
@@ -159,7 +201,7 @@ func (w *Watcher) Stop(err error) {
 	w.connectingTime = time.Time{}
 	w.validatorsRetrieved = false
 
-	w.chanDisconnect <- err
+	w.chanDisconnect <- struct{}{}
 	w.waitGroup.Wait()
 
 	// Logs

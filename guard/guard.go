@@ -79,7 +79,7 @@ func (guard *Guard) Run() (err error) {
 	// Stop watchers when guard is stopped
 	defer func() {
 		for _, w := range guard.watchers {
-			w.Stop(err)
+			w.Stop()
 		}
 	}()
 
@@ -116,6 +116,15 @@ func (guard *Guard) Run() (err error) {
 	// Prepare tickers
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
+
+	//go func() {
+	//	time.Sleep(12*time.Second)
+	//
+	//	for _, w := range guard.watchers {
+	//		fmt.Println("STOP BY HADSNSA")
+	//		w.client.Stop()
+	//	}
+	//}()
 
 	// Main loop
 	for {
@@ -174,22 +183,18 @@ func (guard *Guard) Run() (err error) {
 		case <-healthTicker.C:
 			// Ensure there is at lease one connected node and reconnect not connected ones
 			connected := false
-			wg := sync.WaitGroup{}
-			wg.Add(len(guard.watchers))
 			for _, w := range guard.watchers {
-				go func(w *Watcher) {
-					defer wg.Done()
-					if !w.IsRunning() {
-						err := w.Start()
+				if !w.IsRunning() {
+					go func(w *Watcher) {
+						err := w.Restart()
 						if err != nil {
 							w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
 						}
-					} else {
-						connected = true
-					}
-				}(w)
+					}(w)
+				} else {
+					connected = true
+				}
 			}
-			wg.Wait()
 			if !connected {
 				// Log error
 				guard.logger.Error(fmt.Sprintf(
