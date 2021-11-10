@@ -25,6 +25,8 @@ func main() {
 			os.Exit(0)
 		}
 
+		fmt.Println("guard version:", version.GuardVersion)
+
 		startGuard()
 		return nil
 	})
