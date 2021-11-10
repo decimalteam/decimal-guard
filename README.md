@@ -68,8 +68,8 @@ Where:
 - `NEW_BLOCK_TIMEOUT` - timeout of receiving new block in seconds (if no new blocks are received during this duration then assumed node is disconnected)
 - `VALIDATOR_ADDRESS` - validator address in hex format which should be monitored by the guard. Validator address can be found in file `$HOME/.decimal/daemon/config/priv_validator_key.json`
 - `SET_OFFLINE_TX` - signed tx (ready to broadcast) in hex format which will be used to turn off validator when too many blocks are missed to sign
-- `ENABLE_GRACE_PERIOD` - checked tx "software_upgrade" and set grace period = \[update_block ; update_block+24hours\]
-- `GRACE_PERIOD_DURATION` - grace period duration in blocks. The default value is 15840
+- `ENABLE_GRACE_PERIOD` - checked tx "software_upgrade" and set grace period = \[update_block ; update_block+GRACE_PERIOD_DURATION\]
+- `GRACE_PERIOD_DURATION` - duration of the grace period in blocks. At the moment, the duration of the grace period in decimal-go-node is 15840 blocks (~ 24 hours). It is recommended to set the value for the guard the same as for the node - 15840.
 
 ### Guard usage
 
