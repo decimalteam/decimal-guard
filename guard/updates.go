@@ -7,10 +7,6 @@ import (
 	"sync"
 )
 
-const (
-	OneHour = 660
-)
-
 var (
 	UpdateInfo = NewUpdateInfo("guard.update_block.json")
 )

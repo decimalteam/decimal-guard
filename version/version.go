@@ -1,5 +1,5 @@
 package version
 
 const (
-	GuardVersion = "v1.1.1"
+	GuardVersion = "v1.1.2"
 )
