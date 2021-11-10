@@ -12,7 +12,7 @@ const (
 )
 
 var (
-	UpdateInfo = NewUpdateInfo("update_block.json")
+	UpdateInfo = NewUpdateInfo("guard.update_block.json")
 )
 
 type updateInfo struct {
