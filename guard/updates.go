@@ -25,7 +25,17 @@ func NewUpdateInfo(planfile string) *updateInfo {
 }
 
 func (plan *updateInfo) Check() error {
-	return plan.Load()
+	err := plan.Load()
+	if err != nil {
+		return err
+	}
+
+	err = UpdateInfo.Push(UpdateInfo.UpdateBlock)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (plan *updateInfo) Push(height int64) error {
