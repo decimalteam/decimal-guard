@@ -2,7 +2,6 @@ package guard
 
 import (
 	"encoding/json"
-	"errors"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -29,10 +28,6 @@ func (plan *updateInfo) Check() error {
 	err := plan.Load()
 	if err != nil {
 		return err
-	}
-
-	if plan.UpdateBlock != -1 {
-		return errors.New("failed to check update info file")
 	}
 
 	return nil
