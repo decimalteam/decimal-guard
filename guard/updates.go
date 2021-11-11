@@ -2,6 +2,7 @@ package guard
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -28,6 +29,15 @@ func (plan *updateInfo) Check() error {
 	err := plan.Load()
 	if err != nil {
 		return err
+	}
+
+	info, err := os.Stat(plan.filename)
+	if err != nil {
+		return err
+	}
+
+	if info.Mode().Perm() != os.FileMode(0644) {
+		return errors.New("incorrect permissions")
 	}
 
 	return nil
