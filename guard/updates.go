@@ -2,6 +2,7 @@ package guard
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -24,7 +25,20 @@ func NewUpdateInfo(planfile string) *updateInfo {
 	}
 }
 
-func (plan *updateInfo) Push(height int64) {
+func (plan *updateInfo) Check() error {
+	err := plan.Load()
+	if err != nil {
+		return err
+	}
+
+	if plan.UpdateBlock != -1 {
+		return errors.New("failed to check update info file")
+	}
+
+	return nil
+}
+
+func (plan *updateInfo) Push(height int64) error {
 	plan.mutex.Lock()
 	defer plan.mutex.Unlock()
 
@@ -32,37 +46,39 @@ func (plan *updateInfo) Push(height int64) {
 
 	bytes, err := json.Marshal(plan)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	err = ioutil.WriteFile(plan.filename, bytes, 0644)
 	if err != nil {
-		panic(err)
+		return err
 	}
+
+	return nil
 }
 
-func (plan *updateInfo) Load() int64 {
+func (plan *updateInfo) Load() error {
 	plan.mutex.Lock()
 	defer plan.mutex.Unlock()
 
 	if !fileExist(plan.filename) {
-		err := ioutil.WriteFile(plan.filename, []byte("{}"), 0600)
+		err := ioutil.WriteFile(plan.filename, []byte("{}"), 0644)
 		if err != nil {
-			panic(err)
+			return err
 		}
 	}
 
 	bytes, err := ioutil.ReadFile(plan.filename)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	err = json.Unmarshal(bytes, plan)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	return plan.UpdateBlock
+	return nil
 }
 
 func fileExist(filename string) bool {

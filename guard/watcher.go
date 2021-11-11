@@ -334,10 +334,13 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 		}
 	}
 
-	gracePeriodStart := UpdateInfo.Load()
-	gracePeriodEnd := gracePeriodStart + int64(w.config.GracePeriodDuration)
+	err := UpdateInfo.Load()
+	if err != nil {
+		panic(err)
+	}
+	gracePeriodEnd := UpdateInfo.UpdateBlock + int64(w.config.GracePeriodDuration)
 
-	if gracePeriodStart != -1 && event.Block.Height >= gracePeriodStart && event.Block.Height <= gracePeriodEnd {
+	if UpdateInfo.UpdateBlock != -1 && event.Block.Height >= UpdateInfo.UpdateBlock && event.Block.Height <= gracePeriodEnd {
 		*signed = true
 	}
 }
