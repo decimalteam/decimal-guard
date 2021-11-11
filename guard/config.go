@@ -8,6 +8,6 @@ type Config struct {
 	NewBlockTimeout     int    `env:"NEW_BLOCK_TIMEOUT" mandatory:"true" default:"10"`
 	ValidatorAddress    string `env:"VALIDATOR_ADDRESS" mandatory:"true"`
 	SetOfflineTx        string `env:"SET_OFFLINE_TX" mandatory:"true"`
-	EnableGracePeriod   bool   `env:"ENABLE_GRACE_PERIOD" mandatory:"true"`
+	EnableGracePeriod   bool   `env:"ENABLE_GRACE_PERIOD" mandatory:"true" default:"true"`
 	GracePeriodDuration int    `env:"GRACE_PERIOD_DURATION" mandatory:"true" default:"15840"`
 }
