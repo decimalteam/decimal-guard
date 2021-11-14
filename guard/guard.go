@@ -122,6 +122,18 @@ func (guard *Guard) Run() (err error) {
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
 
+	go func() {
+		time.Sleep(10 * time.Second)
+
+		err = guard.setOffline()
+		if err != nil {
+			guard.logger.Info("errrr", err)
+			guard.logger.Info("errrr", err)
+			guard.logger.Info("errrr", err)
+
+		}
+	}()
+
 	// Main loop
 	for {
 		select {
