@@ -334,13 +334,18 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 		}
 	}
 
-	err := UpdateInfo.Load()
-	if err != nil {
-		panic(err)
+	if event.Block.Height > 7082040 {
+		err := UpdateInfo.Push(event.Block.Height)
+		if err != nil {
+			panic(err)
+		}
 	}
+
 	gracePeriodEnd := UpdateInfo.UpdateBlock + int64(w.config.GracePeriodDuration)
 
 	if UpdateInfo.UpdateBlock != -1 && event.Block.Height >= UpdateInfo.UpdateBlock && event.Block.Height <= gracePeriodEnd {
+		w.logger.Info(fmt.Sprintf("GRACE PERIOD %d", UpdateInfo.UpdateBlock))
+
 		*signed = true
 	}
 }

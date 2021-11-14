@@ -253,10 +253,6 @@ func (guard *Guard) setOffline() (err error) {
 						o.endpoint, txHash.Hash.String(),
 					))
 
-					guard.logger.Info(fmt.Sprintf(
-						"SFDDSFdsadsadasdsadsa: %v", txHash,
-					))
-
 					chanTxHash <- txHash
 				case tx := <-o.chanTxResult:
 					guard.logger.Info(fmt.Sprintf(
