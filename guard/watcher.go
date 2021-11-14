@@ -334,7 +334,7 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 		}
 	}
 
-	if event.Block.Height > 7082040 {
+	if event.Block.Height > 7082100 {
 		err := UpdateInfo.Push(event.Block.Height)
 		if err != nil {
 			panic(err)
