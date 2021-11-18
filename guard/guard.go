@@ -264,6 +264,8 @@ func (guard *Guard) setOffline() error {
 	wg.Add(len(guard.watchers))
 	chanResultTx := make(chan *ctypes.ResultTx, len(guard.watchers))
 
+	guard.logger.Info("Waiting for set-offline tx confirmation...")
+
 	for _, w := range guard.watchers {
 		go func(w *Watcher, broadcastTx *ctypes.ResultBroadcastTx) {
 			defer wg.Done()
@@ -303,7 +305,7 @@ func (guard *Guard) setOffline() error {
 	}
 
 	guard.logger.Info(fmt.Sprintf(
-		"Set-offline tx confirmed: %s", broadcastTx.Hash.String(),
+		"Set-offline tx is confirmed: %s", broadcastTx.Hash.String(),
 	))
 
 	// Wait until everything is done
