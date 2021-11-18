@@ -291,9 +291,6 @@ func (guard *Guard) setOffline() error {
 		return ctx.Err()
 	case tx = <-chanResultTx:
 		cancel()
-		guard.logger.Info(fmt.Sprintf(
-			"Set-offline tx is executed and result is available: %s", tx.TxResult.String(),
-		))
 	}
 
 	// Check if tx was successful and confirmed by the network
@@ -306,7 +303,7 @@ func (guard *Guard) setOffline() error {
 	}
 
 	guard.logger.Info(fmt.Sprintf(
-		"Set-offline tx confirmed: %s", tx.TxResult.String(),
+		"Set-offline tx confirmed: %s", broadcastTx.Hash.String(),
 	))
 
 	// Wait until everything is done

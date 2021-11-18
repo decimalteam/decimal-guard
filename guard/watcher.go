@@ -192,7 +192,7 @@ func (w *Watcher) confirmSetOfflineTx(
 ) (*ctypes.ResultTx, error) {
 	queryTx := fmt.Sprintf("tm.event = 'Tx' AND tx.hash = '%s'", broadcastTx.Hash.String())
 
-	chanTmEventTx, err := w.client.Subscribe(context.Background(), w.endpoint, queryTx)
+	chanTmEventTx, err := w.client.Subscribe(ctx, w.endpoint, queryTx)
 	if err != nil {
 		return nil, err
 	}
