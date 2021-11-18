@@ -42,6 +42,11 @@ func NewGuard(config Config) (*Guard, error) {
 		return nil, errors.New(err)
 	}
 
+	err := UpdateInfo.Check()
+	if err != nil {
+		return nil, err
+	}
+
 	// Prepare channels for events
 	chanEventStatus := make(chan eventStatus, 1024)
 	chanEventNewBlock := make(chan eventNewBlock, 1024)
