@@ -84,7 +84,16 @@ func (guard *Guard) Run() (err error) {
 	// Stop watchers when guard is stopped
 	defer func() {
 		for _, w := range guard.watchers {
-			w.Stop()
+			err := w.Stop()
+			if err != nil {
+				w.logger.Error(fmt.Sprintf(
+					"[%s] ERROR: Unable to disconnect from the node: %s",
+					w.endpoint,
+					err,
+				))
+			}
+
+			w.logger.Info(fmt.Sprintf("[%s] Disconnected from the node", w.endpoint))
 		}
 	}()
 
@@ -181,14 +190,11 @@ func (guard *Guard) Run() (err error) {
 			connected := false
 			for _, w := range guard.watchers {
 				if !w.IsRunning() {
-					go func(w *Watcher) {
-						err := w.Restart()
-						if err != nil {
-							w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
-						}
-					}(w)
+					err = w.Restart()
+					if err != nil {
+						w.logger.Info(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
+					}
 				} else {
-					w.IsRestarting = false
 					connected = true
 				}
 			}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/service"
 	"os"
 	"strconv"
 	"strings"
@@ -27,7 +28,6 @@ type Watcher struct {
 
 	client         *client.HTTP
 	connectingTime time.Time
-	IsRestarting   bool
 
 	status          *ctypes.ResultStatus
 	network         string
@@ -41,7 +41,6 @@ type Watcher struct {
 	chanEventStatus   chan<- eventStatus
 	chanEventNewBlock chan<- eventNewBlock
 	chanEventNoBlock  chan<- eventNoBlock
-	chanDisconnect    chan struct{}
 
 	logger    log.Logger
 	waitGroup sync.WaitGroup
@@ -85,14 +84,7 @@ func (w *Watcher) Start() (err error) {
 		return
 	}
 
-	if !w.connectingTime.IsZero() {
-		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
-		if reconnectingTime.After(time.Now()) {
-			return
-		}
-	}
 	w.connectingTime = time.Now()
-	w.chanDisconnect = make(chan struct{})
 
 	ctx := context.Background()
 	subscriber := "watcher"
@@ -110,8 +102,6 @@ func (w *Watcher) Start() (err error) {
 	if err != nil {
 		return
 	}
-	defer w.client.Stop()
-
 	// Retrieve blockchain info
 	w.updateCommon()
 
@@ -151,7 +141,7 @@ func (w *Watcher) Start() (err error) {
 			w.validatorsRetrieved = false
 			// Emit no block event to the guard
 			w.chanEventNoBlock <- w.onNoBlock(w.latestBlock)
-		case <-w.chanDisconnect:
+		case <-w.client.Quit():
 			return
 		}
 	}
@@ -159,45 +149,50 @@ func (w *Watcher) Start() (err error) {
 
 // Restart resets http client of validator and start it again.
 func (w *Watcher) Restart() error {
-	if w.IsRunning() || w.IsRestarting {
+	if w.connectingTime.IsZero() {
 		return nil
 	}
 
-	w.IsRestarting = true
-
-	// if the client has not been stopped yet, then we are waiting for it to stop
-	select {
-	case <-w.client.Quit():
-		w.logger.Info(fmt.Sprintf("[%s] HTTP Service quit", w.endpoint))
-	case <-time.After(3 * time.Second):
+	reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
+	if reconnectingTime.After(time.Now()) {
+		return nil
 	}
 
-	err := w.client.Reset()
-	if err != nil {
+	err := w.Stop()
+	switch err {
+	case service.ErrAlreadyStopped, nil:
+		err = w.client.Reset()
+		if err != nil {
+			return err
+		}
+	case service.ErrNotStarted:
+	default:
 		return err
 	}
 
-	w.validatorsRetrieved = false
-	w.chanDisconnect <- struct{}{}
-	w.waitGroup.Wait()
+	go func(w *Watcher) {
+		err = w.Start()
+		if err != nil {
+			w.logger.Info(fmt.Sprintf("[%s] Node connection could not be restarted: [%s]", w.endpoint, err))
+		}
+	}(w)
 
-	return w.Start()
+	return nil
 }
 
 // Stop closes existing connection to the node.
-func (w *Watcher) Stop() {
-	if !w.IsRunning() {
-		return
+func (w *Watcher) Stop() error {
+	err := w.client.Stop()
+	if err != nil {
+		return err
 	}
 
 	w.connectingTime = time.Time{}
 	w.validatorsRetrieved = false
 
-	w.chanDisconnect <- struct{}{}
 	w.waitGroup.Wait()
 
-	// Logs
-	w.logger.Info(fmt.Sprintf("[%s] Disconnected from the node", w.endpoint))
+	return nil
 }
 
 // IsRunning returns true if the watcher connected to the node.
