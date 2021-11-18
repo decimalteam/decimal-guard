@@ -42,6 +42,11 @@ func NewGuard(config Config) (*Guard, error) {
 		return nil, errors.New(err)
 	}
 
+	err := UpdateInfo.Check()
+	if err != nil {
+		return nil, err
+	}
+
 	// Prepare channels for events
 	chanEventStatus := make(chan eventStatus, 1024)
 	chanEventNewBlock := make(chan eventNewBlock, 1024)
@@ -213,34 +218,54 @@ func (guard *Guard) setOffline() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
+	// Broadcast set-offline tx to blockchain
 	var txAlreadyBroadcast bool
 
-	chanResultTx := make(chan *ctypes.ResultTx, len(guard.watchers))
+	chanBroadcastTx := make(chan *ctypes.ResultBroadcastTx, len(guard.watchers))
 
-	var wg sync.WaitGroup
-	wg.Add(len(guard.watchers))
 	for _, w := range guard.watchers {
 		go func(w *Watcher) {
-			defer wg.Done()
-
-			var broadcastTx *ctypes.ResultBroadcastTx
-			var err error
-
 			for !txAlreadyBroadcast {
-				broadcastTx, err = w.broadcastSetOfflineTx()
+				broadcastTx, err := w.broadcastSetOfflineTx()
 				if err != nil {
 					w.logger.Info(fmt.Sprintf(
 						"[%s] WARNING: Unable to broadcast set-offline tx: %s. Retry...", w.endpoint, err,
 					))
+					time.Sleep(200 * time.Millisecond)
 					continue
 				}
 
-				txAlreadyBroadcast = true
-			}
+				if broadcastTx != nil {
+					chanBroadcastTx <- broadcastTx
 
-			if broadcastTx == nil {
-				return
+					txAlreadyBroadcast = true
+				}
 			}
+		}(w)
+	}
+
+	// Wait until tx is broadcast to blockchain
+	var broadcastTx *ctypes.ResultBroadcastTx
+	select {
+	case <-ctx.Done():
+		guard.logger.Error("ERROR: Unable to wait for set-offline tx broadcasting during 15 minutes")
+		return ctx.Err()
+	case broadcastTx = <-chanBroadcastTx:
+		guard.logger.Info(fmt.Sprintf(
+			"Set-offline tx broadcast: %s", broadcastTx.Hash.String(),
+		))
+	}
+
+	// Confirm broadcast set-offline tx
+	var wg sync.WaitGroup
+	wg.Add(len(guard.watchers))
+	chanResultTx := make(chan *ctypes.ResultTx, len(guard.watchers))
+
+	guard.logger.Info("Waiting for set-offline tx confirmation...")
+
+	for _, w := range guard.watchers {
+		go func(w *Watcher, broadcastTx *ctypes.ResultBroadcastTx) {
+			defer wg.Done()
 
 			childCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer cancel()
@@ -254,20 +279,17 @@ func (guard *Guard) setOffline() error {
 			}
 
 			chanResultTx <- confirmedTx
-		}(w)
+		}(w, broadcastTx)
 	}
 
-	// Wait until tx is confirmed and execution result is available
+	// Wait until tx execution result is available
 	var tx *ctypes.ResultTx
 	select {
 	case <-ctx.Done():
-		guard.logger.Error("ERROR: Unable to wait for set-offline tx confirmation during 10 minutes")
+		guard.logger.Error("ERROR: Unable to wait for set-offline tx confirmation during 15 minutes")
 		return ctx.Err()
 	case tx = <-chanResultTx:
 		cancel()
-		guard.logger.Info(fmt.Sprintf(
-			"Set-offline tx confirmed: %s", tx.TxResult.String(),
-		))
 	}
 
 	// Check if tx was successful and confirmed by the network
@@ -278,6 +300,10 @@ func (guard *Guard) setOffline() error {
 		))
 		return errors.New("tx was failed")
 	}
+
+	guard.logger.Info(fmt.Sprintf(
+		"Set-offline tx is confirmed: %s", broadcastTx.Hash.String(),
+	))
 
 	// Wait until everything is done
 	wg.Wait()

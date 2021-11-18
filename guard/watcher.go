@@ -226,7 +226,7 @@ func (w *Watcher) confirmSetOfflineTx(
 ) (*ctypes.ResultTx, error) {
 	queryTx := fmt.Sprintf("tm.event = 'Tx' AND tx.hash = '%s'", broadcastTx.Hash.String())
 
-	chanTmEventTx, err := w.client.Subscribe(context.Background(), w.endpoint, queryTx)
+	chanTmEventTx, err := w.client.Subscribe(ctx, w.endpoint, queryTx)
 	if err != nil {
 		return nil, err
 	}
@@ -334,34 +334,54 @@ func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
 }
 
 // Parse block and find transaction "software_upgrade".
-// If transaction exists then saved param "upgrade_height" into file "update_block.json"
+// If transaction exists then saved param "upgrade_height" into file "guard.update_block.json"
 // and set grace period = [update_block ; update_block+24hours].
 func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *bool) {
 	for _, tx := range event.Block.Txs {
 		resultTx, err := w.client.Tx(tx.Hash(), false)
 		if err != nil {
+			w.logger.Error(fmt.Sprintf("Unable to get tx by hash: %s", err))
 			break
 		}
 
 		actionUpgradeExist := false
 
-		for _, event := range resultTx.TxResult.Events {
+		for i, event := range resultTx.TxResult.Events {
 			if event.Type != sdk.EventTypeMessage {
 				continue
 			}
 
 			if actionUpgradeExist {
+				w.logger.Info(fmt.Sprintf("Check upgrade_height attribute in tx event"))
+
 				// "software_upgrade" -> ntypes.AttributeKeyUpgradeHeight
 				height, ok := getValueInEvent(event, "upgrade_height")
 				if !ok {
-					continue
-				}
-				res, err := strconv.ParseInt(height, 10, 64)
-				if err != nil {
+					w.logger.
+						With("height", fmt.Sprintf("%v", height)).
+						Error(fmt.Sprintf("Unable to get value from upgrade_height attribute"))
 					continue
 				}
 
-				UpdateInfo.Push(res)
+				w.logger.Info(fmt.Sprintf("upgrade_height attribute with value %s detected", height))
+
+				res, err := strconv.ParseInt(height, 10, 64)
+				if err != nil {
+					w.logger.
+						With("height", fmt.Sprintf("%v", height)).
+						Error(fmt.Sprintf("Unable to parse height of upgrade_height attribute"))
+					continue
+				}
+
+				w.logger.Info(fmt.Sprintf("Height value of upgrade_height attribute successful parsed %d", res))
+
+				err = UpdateInfo.Push(res)
+				if err != nil {
+					panic(err)
+				}
+
+				w.logger.Info(fmt.Sprintf("upgrade_height stored successful"))
+
 				break
 			}
 
@@ -369,15 +389,22 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 
 			// "software_upgrade" -> ntypes.AttributeKeyUpgradeHeight
 			if ok && val == "software_upgrade" {
+				w.logger.
+					With("attr index", fmt.Sprintf("%d", i)).
+					With("attr len", fmt.Sprintf("%d", len(resultTx.TxResult.Events))).
+					Info(fmt.Sprintf("Action attribute with software_upgrade value detected"))
 				actionUpgradeExist = true
 			}
 		}
 	}
 
-	gracePeriodStart := UpdateInfo.Load()
-	gracePeriodEnd := gracePeriodStart + (OneHour / 4)
+	err := UpdateInfo.Load()
+	if err != nil {
+		panic(err)
+	}
+	gracePeriodEnd := UpdateInfo.UpdateBlock + int64(w.config.GracePeriodDuration)
 
-	if gracePeriodStart != -1 && event.Block.Height >= gracePeriodStart && event.Block.Height <= gracePeriodEnd {
+	if UpdateInfo.UpdateBlock != -1 && event.Block.Height >= UpdateInfo.UpdateBlock && event.Block.Height <= gracePeriodEnd {
 		*signed = true
 	}
 }
