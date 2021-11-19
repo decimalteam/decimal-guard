@@ -279,7 +279,7 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 		// Retrieve set of validators expected in the block
 		validators, e := w.client.Validators(&event.Block.Height, 0, 1000)
 		if e != nil {
-			e = err
+			err = e
 			return
 		}
 
