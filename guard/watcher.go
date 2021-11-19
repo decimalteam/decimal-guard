@@ -265,7 +265,14 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	w.latestBlock = event.Block.Height
 	w.latestBlockTime = event.Block.Time
 
-	_, e := w.client.Validators(nil, 0, 1000)
+	_, e := w.client.Health()
+	if e != nil {
+		w.logger.Error(e.Error())
+
+		return
+	}
+
+	_, e = w.client.Validators(nil, 0, 1000)
 	if e != nil {
 		w.logger.Error(e.Error())
 
