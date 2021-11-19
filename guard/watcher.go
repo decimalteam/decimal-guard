@@ -156,6 +156,8 @@ func (w *Watcher) Restart() error {
 		return nil
 	}
 
+	time.Sleep(200 * time.Millisecond)
+
 	// Close http connection with tendermint if it is not closed yet
 	err := w.Stop()
 	switch err {
