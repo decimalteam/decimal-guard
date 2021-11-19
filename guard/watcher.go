@@ -102,6 +102,8 @@ func (w *Watcher) Start() (err error) {
 	if err != nil {
 		return
 	}
+	defer w.client.Stop()
+
 	// Retrieve blockchain info
 	w.updateCommon()
 
