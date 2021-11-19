@@ -108,7 +108,7 @@ func (guard *Guard) Run() (err error) {
 			w.logger.Info(fmt.Sprintf("[%s] Connecting to the node...", w.endpoint))
 
 			if err := w.Start(); err != nil {
-				w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
+				w.logger.Error(fmt.Sprintf("[%s] ERROR: Unable to connect to the node: %s", w.endpoint, err))
 			}
 		}(w)
 	}

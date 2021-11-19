@@ -133,14 +133,12 @@ func (w *Watcher) Start() (err error) {
 			// Handle received event
 			err = w.handleEventNewBlock(result)
 			if err != nil {
-				w.logger.Error(err.Error())
 				return
 			}
 		case result := <-chanValidatorSetUpdates:
 			// Handle received event
 			err = w.handleEventValidatorSetUpdates(result)
 			if err != nil {
-				w.logger.Error(err.Error())
 				return
 			}
 		case <-time.After(time.Duration(w.config.NewBlockTimeout) * time.Second):
