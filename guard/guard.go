@@ -203,6 +203,7 @@ func (guard *Guard) Run() (err error) {
 			connected := false
 			for _, w := range guard.watchers {
 				if !w.IsRunning() {
+					w.logger.Info(fmt.Sprintf("[%s] RESTART", w.endpoint))
 					err = w.Restart()
 					if err != nil {
 						w.logger.Info(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))

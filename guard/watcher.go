@@ -156,7 +156,12 @@ func (w *Watcher) Restart() error {
 		return nil
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-w.client.Quit():
+		w.logger.Info(fmt.Sprintf("[%s] QQQ", w.endpoint))
+	case <-time.After(3 * time.Second):
+		w.logger.Info(fmt.Sprintf("[%s] AAA", w.endpoint))
+	}
 
 	// Close http connection with tendermint if it is not closed yet
 	err := w.Stop()
