@@ -122,7 +122,7 @@ func (guard *Guard) Run() (err error) {
 			w.logger.Info(fmt.Sprintf("[%s] Connecting to the node...", w.endpoint))
 
 			if err := w.Start(); err != nil {
-				w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
+				w.logger.Error(fmt.Sprintf("[%s] ERROR: Unable to connect to the node: %s", w.endpoint, err))
 			}
 		}(w)
 	}
@@ -130,6 +130,18 @@ func (guard *Guard) Run() (err error) {
 	// Prepare tickers
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
+
+	go func() {
+		for _, _ = range []int{1, 2, 3} {
+			time.Sleep(30 * time.Second)
+			for _, w := range guard.watchers {
+				err := w.client.Stop()
+				if err != nil {
+					w.logger.Error(fmt.Sprintf("[%s] FFFFF: %s", w.endpoint, err))
+				}
+			}
+		}
+	}()
 
 	// Main loop
 	for {
