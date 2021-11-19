@@ -265,14 +265,30 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	w.latestBlock = event.Block.Height
 	w.latestBlockTime = event.Block.Time
 
+	_, e := w.client.Validators(&event.Block.Height, 0, 1000)
+	if e != nil {
+		w.logger.Error(e.Error())
+
+		return
+	}
+	w.logger.Info(fmt.Sprintf("[%s] .",
+		w.endpoint,
+	))
+
 	if !w.validatorsRetrieved {
+		w.logger.Info(fmt.Sprintf("[%s] TEST BLOCK %d. Time: %v",
+			w.endpoint,
+			event.Block.Height,
+			event.Block.Time,
+		))
 
 		w.logger.Info(fmt.Sprintf("[%s] Retrieving set of validators for block %d", w.endpoint, event.Block.Height))
 
 		// Retrieve set of validators expected in the block
 		validators, e := w.client.Validators(&event.Block.Height, 0, 1000)
 		if e != nil {
-			err = e
+			w.logger.Error(e.Error())
+
 			return
 		}
 
