@@ -81,6 +81,20 @@ func (guard *Guard) Run() (err error) {
 	chanInterrupt := make(chan os.Signal, 1)
 	signal.Notify(chanInterrupt, os.Interrupt, os.Kill)
 
+	// Stop watchers when guard is stopped
+	defer func() {
+		for _, w := range guard.watchers {
+			err := w.Stop()
+			if err != nil {
+				w.logger.Error(fmt.Sprintf(
+					"[%s] ERROR: Unable to disconnect from the node: %s",
+					w.endpoint,
+					err,
+				))
+			}
+		}
+	}()
+
 	// Ensure set-offline tx is valid
 	err = guard.validateSetOfflineTx()
 	if err != nil {
@@ -116,19 +130,6 @@ func (guard *Guard) Run() (err error) {
 	// Prepare tickers
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
-
-	go func() {
-		for _, _ = range []int{1, 2, 3} {
-			time.Sleep(30 * time.Second)
-			for _, w := range guard.watchers {
-				w.logger.Info(fmt.Sprintf("[%s] AHHH", w.endpoint))
-				err := w.client.Stop()
-				if err != nil {
-					w.logger.Error(fmt.Sprintf("[%s] F", w.endpoint))
-				}
-			}
-		}
-	}()
 
 	// Main loop
 	for {

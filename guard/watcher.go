@@ -90,24 +90,15 @@ func (w *Watcher) Start() (err error) {
 	subscriber := "watcher"
 	capacity := 1_000_000
 
+	// Lock the wait group
+	w.waitGroup.Add(1)
+	defer w.waitGroup.Done()
+
 	// Start Tendermint HTTP client
 	err = w.client.Start()
 	if err != nil {
 		return
 	}
-
-	// Lock the wait group
-	w.waitGroup.Add(1)
-
-	defer func() {
-		w.waitGroup.Done()
-
-		err := w.Stop()
-		if err != nil {
-			w.logger.Error(err.Error())
-			return
-		}
-	}()
 
 	// Retrieve blockchain info
 	w.updateCommon()
@@ -134,14 +125,14 @@ func (w *Watcher) Start() (err error) {
 			err = w.handleEventNewBlock(result)
 			if err != nil {
 				w.logger.Error(err.Error())
-				return
+				continue
 			}
 		case result := <-chanValidatorSetUpdates:
 			// Handle received event
 			err = w.handleEventValidatorSetUpdates(result)
 			if err != nil {
 				w.logger.Error(err.Error())
-				return
+				continue
 			}
 		case <-time.After(time.Duration(w.config.NewBlockTimeout) * time.Second):
 			// Force validators set retrieving on next new block when reconnected
