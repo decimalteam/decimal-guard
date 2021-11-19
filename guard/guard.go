@@ -81,22 +81,6 @@ func (guard *Guard) Run() (err error) {
 	chanInterrupt := make(chan os.Signal, 1)
 	signal.Notify(chanInterrupt, os.Interrupt, os.Kill)
 
-	// Stop watchers when guard is stopped
-	defer func() {
-		for _, w := range guard.watchers {
-			err := w.Stop()
-			if err != nil {
-				w.logger.Error(fmt.Sprintf(
-					"[%s] ERROR: Unable to disconnect from the node: %s",
-					w.endpoint,
-					err,
-				))
-			}
-
-			w.logger.Info(fmt.Sprintf("[%s] Disconnected from the node", w.endpoint))
-		}
-	}()
-
 	// Ensure set-offline tx is valid
 	err = guard.validateSetOfflineTx()
 	if err != nil {

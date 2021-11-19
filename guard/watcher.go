@@ -204,6 +204,8 @@ func (w *Watcher) Stop() error {
 
 	w.waitGroup.Wait()
 
+	w.logger.Info(fmt.Sprintf("[%s] Disconnected from the node", w.endpoint))
+
 	return nil
 }
 
