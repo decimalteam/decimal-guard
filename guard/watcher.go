@@ -165,6 +165,12 @@ func (w *Watcher) Restart() error {
 		return nil
 	}
 
+	// It is necessary to wait if the client has started to close, but has not yet closed
+	select {
+	case <-w.client.Quit():
+	case <-time.After(time.Second):
+	}
+
 	// Close http connection with tendermint if it is not closed yet
 	err := w.Stop()
 	switch err {
