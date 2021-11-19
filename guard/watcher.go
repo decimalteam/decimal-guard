@@ -95,17 +95,19 @@ func (w *Watcher) Start() (err error) {
 	if err != nil {
 		return
 	}
+
+	// Lock the wait group
+	w.waitGroup.Add(1)
+
 	defer func() {
+		w.waitGroup.Done()
+
 		err := w.Stop()
 		if err != nil {
 			w.logger.Error(err.Error())
 			return
 		}
 	}()
-
-	// Lock the wait group
-	w.waitGroup.Add(1)
-	defer w.waitGroup.Done()
 
 	// Retrieve blockchain info
 	w.updateCommon()
