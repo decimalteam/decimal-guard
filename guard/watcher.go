@@ -272,11 +272,6 @@ func (w *Watcher) handleEventNewBlock(result ctypes.ResultEvent) (err error) {
 	w.latestBlockTime = event.Block.Time
 
 	if !w.validatorsRetrieved {
-		w.logger.Info(fmt.Sprintf("[%s] TEST BLOCK %d. Time: %v",
-			w.endpoint,
-			event.Block.Height,
-			event.Block.Time,
-		))
 
 		w.logger.Info(fmt.Sprintf("[%s] Retrieving set of validators for block %d", w.endpoint, event.Block.Height))
 
