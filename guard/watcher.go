@@ -187,7 +187,7 @@ func (w *Watcher) Restart() error {
 // Stop closes existing connection to the node.
 func (w *Watcher) Stop() error {
 	err := w.client.Stop()
-	w.logger.Info(fmt.Sprintf("[%s] CLOSED STOP", w.endpoint))
+	w.logger.Info(fmt.Sprintf("[%s] CLOSED STOP %s", w.endpoint, err))
 	if err != nil {
 		return err
 	}

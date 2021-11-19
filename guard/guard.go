@@ -136,7 +136,7 @@ func (guard *Guard) Run() (err error) {
 			time.Sleep(30 * time.Second)
 			for _, w := range guard.watchers {
 				err := w.client.Stop()
-				w.logger.Info(fmt.Sprintf("[%s] CLOSED", w.endpoint))
+				w.logger.Info(fmt.Sprintf("[%s] CLOSED %s", w.endpoint, err))
 				if err != nil {
 					w.logger.Error(fmt.Sprintf("[%s] FFFFF: %s", w.endpoint, err))
 				}
