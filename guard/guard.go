@@ -117,6 +117,19 @@ func (guard *Guard) Run() (err error) {
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
 
+	go func() {
+		for _, _ = range []int{1, 2, 3} {
+			time.Sleep(30 * time.Second)
+			for _, w := range guard.watchers {
+				w.logger.Info(fmt.Sprintf("[%s] AHHH", w.endpoint))
+				err := w.client.Stop()
+				if err != nil {
+					w.logger.Error(fmt.Sprintf("[%s] F", w.endpoint))
+				}
+			}
+		}
+	}()
+
 	// Main loop
 	for {
 		select {
