@@ -26,8 +26,8 @@ type Watcher struct {
 	config   Config
 	endpoint string
 
-	client         *client.HTTP
-	connectingTime time.Time
+	client      *client.HTTP
+	connectedAt time.Time
 
 	status          *ctypes.ResultStatus
 	network         string
@@ -84,14 +84,11 @@ func (w *Watcher) Start() (err error) {
 		return
 	}
 
-	w.connectingTime = time.Now()
+	w.connectedAt = time.Now()
 
 	ctx := context.Background()
 	subscriber := "watcher"
 	capacity := 1_000_000
-
-	// Logs
-	w.logger.Info(fmt.Sprintf("[%s] Connecting to the node...", w.endpoint))
 
 	// Lock the wait group
 	w.waitGroup.Add(1)
@@ -102,7 +99,9 @@ func (w *Watcher) Start() (err error) {
 	if err != nil {
 		return
 	}
-	defer w.client.Stop()
+	defer func() {
+		w.Stop()
+	}()
 
 	// Retrieve blockchain info
 	w.updateCommon()
@@ -151,15 +150,16 @@ func (w *Watcher) Start() (err error) {
 
 // Restart resets http client of validator and start it again.
 func (w *Watcher) Restart() error {
-	if w.connectingTime.IsZero() {
+	if w.connectedAt.IsZero() {
 		return nil
 	}
 
-	reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
+	reconnectingTime := w.connectedAt.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
 	if reconnectingTime.After(time.Now()) {
 		return nil
 	}
 
+	// Close http connection with tendermint if it is not closed yet
 	err := w.Stop()
 	switch err {
 	case service.ErrAlreadyStopped, nil:
@@ -173,9 +173,14 @@ func (w *Watcher) Restart() error {
 	}
 
 	go func(w *Watcher) {
+		w.logger.Info(fmt.Sprintf("[%s] Reconnecting to the node...", w.endpoint))
 		err = w.Start()
 		if err != nil {
-			w.logger.Info(fmt.Sprintf("[%s] Node connection could not be restarted: [%s]", w.endpoint, err))
+			w.logger.Error(fmt.Sprintf(
+				"[%s] ERROR: Node connection could not be restarted: [%s]",
+				w.endpoint,
+				err,
+			))
 		}
 	}(w)
 
@@ -189,7 +194,6 @@ func (w *Watcher) Stop() error {
 		return err
 	}
 
-	w.connectingTime = time.Time{}
 	w.validatorsRetrieved = false
 
 	w.waitGroup.Wait()
