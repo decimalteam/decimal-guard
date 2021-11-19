@@ -90,18 +90,22 @@ func (w *Watcher) Start() (err error) {
 	subscriber := "watcher"
 	capacity := 1_000_000
 
-	// Lock the wait group
-	w.waitGroup.Add(1)
-	defer w.waitGroup.Done()
-
 	// Start Tendermint HTTP client
 	err = w.client.Start()
 	if err != nil {
 		return
 	}
 	defer func() {
-		w.Stop()
+		err := w.Stop()
+		if err != nil {
+			w.logger.Error(err.Error())
+			return
+		}
 	}()
+
+	// Lock the wait group
+	w.waitGroup.Add(1)
+	defer w.waitGroup.Done()
 
 	// Retrieve blockchain info
 	w.updateCommon()
