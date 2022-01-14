@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/service"
 	"os"
 	"strconv"
 	"strings"
@@ -25,8 +26,8 @@ type Watcher struct {
 	config   Config
 	endpoint string
 
-	client         *client.HTTP
-	connectingTime time.Time
+	client      *client.HTTP
+	connectedAt time.Time
 
 	status          *ctypes.ResultStatus
 	network         string
@@ -40,7 +41,6 @@ type Watcher struct {
 	chanEventStatus   chan<- eventStatus
 	chanEventNewBlock chan<- eventNewBlock
 	chanEventNoBlock  chan<- eventNoBlock
-	chanDisconnect    chan error
 
 	logger    log.Logger
 	waitGroup sync.WaitGroup
@@ -60,6 +60,11 @@ func NewWatcher(
 	if err != nil {
 		return nil, err
 	}
+
+	// It's necessary to override OnReset method to allow OnStart/OnStop to be called again and restart service
+	// https://github.com/tendermint/tendermint/blob/master/libs/service/service.go#L66
+	c.WSEvents.BaseService = NewBaseService("WSEvents", c.WSEvents)
+
 	return &Watcher{
 		config:            config,
 		endpoint:          endpoint,
@@ -68,7 +73,6 @@ func NewWatcher(
 		chanEventStatus:   chanEventStatus,
 		chanEventNewBlock: chanEventNewBlock,
 		chanEventNoBlock:  chanEventNoBlock,
-		chanDisconnect:    make(chan error, 1),
 		logger:            log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
 		mtx:               sync.Mutex{},
 	}, nil
@@ -79,31 +83,31 @@ func (w *Watcher) Start() (err error) {
 	if w.IsRunning() {
 		return
 	}
-	if !w.connectingTime.IsZero() {
-		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
-		if reconnectingTime.After(time.Now()) {
-			return
-		}
-	}
-	w.connectingTime = time.Now()
+
+	w.connectedAt = time.Now()
 
 	ctx := context.Background()
 	subscriber := "watcher"
 	capacity := 1_000_000
-
-	// Logs
-	w.logger.Info(fmt.Sprintf("[%s] Connecting to the node...", w.endpoint))
-
-	// Lock the wait group
-	w.waitGroup.Add(1)
-	defer w.waitGroup.Done()
 
 	// Start Tendermint HTTP client
 	err = w.client.Start()
 	if err != nil {
 		return
 	}
-	defer w.client.Stop()
+
+	// Lock the wait group
+	w.waitGroup.Add(1)
+
+	defer func() {
+		w.waitGroup.Done()
+
+		err := w.Stop()
+		if err != nil {
+			w.logger.Error(err.Error())
+			return
+		}
+	}()
 
 	// Retrieve blockchain info
 	w.updateCommon()
@@ -129,14 +133,12 @@ func (w *Watcher) Start() (err error) {
 			// Handle received event
 			err = w.handleEventNewBlock(result)
 			if err != nil {
-				w.logger.Error(err.Error())
 				return
 			}
 		case result := <-chanValidatorSetUpdates:
 			// Handle received event
 			err = w.handleEventValidatorSetUpdates(result)
 			if err != nil {
-				w.logger.Error(err.Error())
 				return
 			}
 		case <-time.After(time.Duration(w.config.NewBlockTimeout) * time.Second):
@@ -144,26 +146,71 @@ func (w *Watcher) Start() (err error) {
 			w.validatorsRetrieved = false
 			// Emit no block event to the guard
 			w.chanEventNoBlock <- w.onNoBlock(w.latestBlock)
-		case <-w.chanDisconnect:
+		case <-w.client.Quit():
 			return
 		}
 	}
 }
 
-// Stop closes existing connection to the node.
-func (w *Watcher) Stop(err error) {
-	if !w.IsRunning() {
-		return
+// Restart resets http client of validator and start it again.
+func (w *Watcher) Restart() error {
+	if w.connectedAt.IsZero() {
+		return nil
 	}
 
-	w.connectingTime = time.Time{}
+	reconnectingTime := w.connectedAt.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
+	if reconnectingTime.After(time.Now()) {
+		return nil
+	}
+
+	// It is necessary to wait if the client has started to close, but has not yet closed
+	select {
+	case <-w.client.Quit():
+	case <-time.After(time.Second):
+	}
+
+	// Close http connection with tendermint if it is not closed yet
+	err := w.Stop()
+	switch err {
+	case service.ErrAlreadyStopped, nil:
+		err = w.client.Reset()
+		if err != nil {
+			return err
+		}
+	case service.ErrNotStarted:
+	default:
+		return err
+	}
+
+	go func(w *Watcher) {
+		w.logger.Info(fmt.Sprintf("[%s] Reconnecting to the node...", w.endpoint))
+		err = w.Start()
+		if err != nil {
+			w.logger.Error(fmt.Sprintf(
+				"[%s] ERROR: Node connection could not be restarted: [%s]",
+				w.endpoint,
+				err,
+			))
+		}
+	}(w)
+
+	return nil
+}
+
+// Stop closes existing connection to the node.
+func (w *Watcher) Stop() error {
+	err := w.client.Stop()
+	if err != nil {
+		return err
+	}
+
 	w.validatorsRetrieved = false
 
-	w.chanDisconnect <- err
 	w.waitGroup.Wait()
 
-	// Logs
 	w.logger.Info(fmt.Sprintf("[%s] Disconnected from the node", w.endpoint))
+
+	return nil
 }
 
 // IsRunning returns true if the watcher connected to the node.
@@ -176,40 +223,46 @@ func (w *Watcher) IsRunning() bool {
 ////////////////////////////////////////////////////////////////////////////////
 
 // broadcastSetOfflineTx broadcasts `validator/set_offline` transaction from validator operator account.
-func (w *Watcher) broadcastSetOfflineTx(
-	chanTxHash chan *ctypes.ResultBroadcastTx,
-	chanTxResult chan *ctypes.ResultTx,
-	chanStop chan interface{},
-) (err error) {
+func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 	data, err := hex.DecodeString(w.config.SetOfflineTx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var resultBroadcast *ctypes.ResultBroadcastTx
+
+	return w.client.BroadcastTxSync(data)
+}
+
+// confirmSetOfflineTx wait confirmation `validator/set_offline` transaction from validator operator account.
+func (w *Watcher) confirmSetOfflineTx(
+	ctx context.Context,
+	broadcastTx *ctypes.ResultBroadcastTx,
+) (*ctypes.ResultTx, error) {
+	queryTx := fmt.Sprintf("tm.event = 'Tx' AND tx.hash = '%s'", broadcastTx.Hash.String())
+
+	chanTmEventTx, err := w.client.Subscribe(ctx, w.endpoint, queryTx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait until tx is committed
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-chanTmEventTx:
+	}
+
 	var resultTx *ctypes.ResultTx
-	// Broadcast transaction synchronously
-	for {
-		resultBroadcast, err = w.client.BroadcastTxSync(data)
-		if err != nil {
-			w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to broadcast set-offline tx: %s", w.endpoint, err))
-			time.Sleep(time.Second)
-			continue
+	for ctx.Err() == nil {
+		resultTx, err = w.client.Tx(broadcastTx.Hash.Bytes(), false)
+		if err == nil {
+			break
 		}
-		chanTxHash <- resultBroadcast
-		break
+
+		w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
+		time.Sleep(time.Second)
 	}
-	// Wait until transaction is done
-	for {
-		resultTx, err = w.client.Tx(resultBroadcast.Hash.Bytes(), false)
-		if err != nil {
-			w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
-			time.Sleep(time.Second)
-			continue
-		}
-		chanTxResult <- resultTx
-		break
-	}
-	return
+
+	return resultTx, ctx.Err()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
