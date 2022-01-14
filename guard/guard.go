@@ -81,13 +81,6 @@ func (guard *Guard) Run() (err error) {
 	chanInterrupt := make(chan os.Signal, 1)
 	signal.Notify(chanInterrupt, os.Interrupt, os.Kill)
 
-	// Stop watchers when guard is stopped
-	defer func() {
-		for _, w := range guard.watchers {
-			w.Stop(err)
-		}
-	}()
-
 	// Ensure set-offline tx is valid
 	err = guard.validateSetOfflineTx()
 	if err != nil {
@@ -112,8 +105,10 @@ func (guard *Guard) Run() (err error) {
 	// Start watchers
 	for _, w := range guard.watchers {
 		go func(w *Watcher) {
+			w.logger.Info(fmt.Sprintf("[%s] Connecting to the node...", w.endpoint))
+
 			if err := w.Start(); err != nil {
-				w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
+				w.logger.Error(fmt.Sprintf("[%s] ERROR: Unable to connect to the node: %s", w.endpoint, err))
 			}
 		}(w)
 	}
@@ -179,22 +174,16 @@ func (guard *Guard) Run() (err error) {
 		case <-healthTicker.C:
 			// Ensure there is at lease one connected node and reconnect not connected ones
 			connected := false
-			wg := sync.WaitGroup{}
-			wg.Add(len(guard.watchers))
 			for _, w := range guard.watchers {
-				go func(w *Watcher) {
-					defer wg.Done()
-					if !w.IsRunning() {
-						err := w.Start()
-						if err != nil {
-							w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to connect to the node: %s", w.endpoint, err))
-						}
-					} else {
-						connected = true
+				if !w.IsRunning() {
+					err = w.Restart()
+					if err != nil {
+						w.logger.Info(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
 					}
-				}(w)
+				} else {
+					connected = true
+				}
 			}
-			wg.Wait()
 			if !connected {
 				// Log error
 				guard.logger.Error(fmt.Sprintf(
@@ -336,10 +325,10 @@ func (guard *Guard) printState() {
 			} else {
 				statusStr = fmt.Sprintf("%-14s", "connected")
 			}
-		} else if w.connectingTime.IsZero() {
+		} else if w.connectedAt.IsZero() {
 			statusStr = fmt.Sprintf("%-14s", "not connected")
 		} else {
-			reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
+			reconnectingTime := w.connectedAt.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
 			if reconnectingTime.After(time.Now()) {
 				statusStr = fmt.Sprintf("%-14s", "reconnecting")
 			} else {
