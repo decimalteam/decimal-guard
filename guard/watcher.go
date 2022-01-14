@@ -14,7 +14,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ttypes "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/rpc/client"
+	client "github.com/tendermint/tendermint/rpc/client/http"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"github.com/tendermint/tendermint/types"
 	// ntypes "bitbucket.org/decimalteam/go-node/x/gov/internal/types"
@@ -56,7 +56,7 @@ func NewWatcher(
 	chanEventNoBlock chan<- eventNoBlock,
 ) (*Watcher, error) {
 	// Create Tendermint c instance and connect it to the node
-	c, err := client.NewHTTP(endpoint, "/websocket")
+	c, err := client.New(endpoint, "/websocket")
 	if err != nil {
 		return nil, err
 	}
