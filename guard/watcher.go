@@ -15,7 +15,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ttypes "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/rpc/client"
+	client "github.com/tendermint/tendermint/rpc/client/http"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"github.com/tendermint/tendermint/types"
 	// ntypes "bitbucket.org/decimalteam/go-node/x/gov/internal/types"
@@ -56,7 +56,7 @@ func NewWatcher(
 	chanEventNoBlock chan<- eventNoBlock,
 ) (*Watcher, error) {
 	// Create Tendermint c instance and connect it to the node
-	c, err := client.NewHTTP(endpoint, "/websocket")
+	c, err := client.New(endpoint, "/websocket")
 	if err != nil {
 		return nil, err
 	}
@@ -351,9 +351,9 @@ func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
 // and set grace period = [update_block ; update_block+24hours].
 func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *bool) {
 	for _, tx := range event.Block.Txs {
-		resultTx, err := w.client.Tx(tx.Hash(), false)
+		resultTx, err := w.getTxInfo(tx, 0)
 		if err != nil {
-			w.logger.Error(fmt.Sprintf("Unable to get tx by hash: %s", err))
+			w.logger.Error(fmt.Sprintf("Unable to get tx in block %d by hash: %s", event.Block.Height, err))
 			break
 		}
 
@@ -420,6 +420,32 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 	if UpdateInfo.UpdateBlock != -1 && event.Block.Height >= UpdateInfo.UpdateBlock && event.Block.Height <= gracePeriodEnd {
 		*signed = true
 	}
+}
+
+const maxAttempts = 5
+const attemptWaitTime = 100 * time.Millisecond
+
+// Tendermint may not find the transaction by hash, although it has already been inserted into the block
+// In this case, we wait a bit and try to get it again
+func (w *Watcher) getTxInfo(tx types.Tx, attempt int) (*ctypes.ResultTx, error) {
+	resultTx, err := w.client.Tx(tx.Hash(), false)
+	if err != nil {
+		w.logger.Error(fmt.Sprintf("[TEST] attempt %d", attempt))
+
+		if attempt == maxAttempts {
+			return nil, err
+		}
+
+		time.Sleep(attemptWaitTime)
+
+		return w.getTxInfo(tx, attempt+1)
+	}
+
+	if attempt != 0 {
+		w.logger.Error(fmt.Sprintf("attempt ok %d", attempt))
+	}
+
+	return resultTx, nil
 }
 
 // handleEventValidatorSetUpdates handles validator set updates events received from watchers.
