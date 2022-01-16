@@ -344,9 +344,9 @@ func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
 // If transaction exists then saved param "upgrade_height" into file "guard.update_block.json"
 // and set grace period = [update_block ; update_block+24hours].
 func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *bool) {
-	if event.Block.Height == 2045981 {
+	if event.Block.Height == 7921399 {
 		w.logger.Info(fmt.Sprintf("Check upgrade_height attribute in tx event"))
-		err := UpdateInfo.Push(2045981)
+		err := UpdateInfo.Push(7921399)
 		if err != nil {
 			panic(err)
 		}
