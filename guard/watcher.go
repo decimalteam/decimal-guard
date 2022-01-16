@@ -117,8 +117,10 @@ func (w *Watcher) Start() (err error) {
 	for {
 		select {
 		case result := <-chanBlocks:
-			if w.validatorsRetrieved {
+			if !o {
 				// эмитация ошибки, которая может вдруг произойти
+				o = true
+
 				return errors.New("goose")
 			}
 			// Handle received event
@@ -142,6 +144,8 @@ func (w *Watcher) Start() (err error) {
 		}
 	}
 }
+
+var o bool
 
 // Restart resets http client of validator and start it again.
 func (w *Watcher) Restart() error {
