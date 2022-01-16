@@ -250,7 +250,7 @@ func (w *Watcher) confirmSetOfflineTx(
 			break
 		}
 
-		w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
+		w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s. Retry...", w.endpoint, err))
 		time.Sleep(time.Second)
 	}
 
