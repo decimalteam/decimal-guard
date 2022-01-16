@@ -117,12 +117,6 @@ func (w *Watcher) Start() (err error) {
 	for {
 		select {
 		case result := <-chanBlocks:
-			if !o {
-				// эмитация ошибки, которая может вдруг произойти
-				o = true
-
-				return errors.New("goose")
-			}
 			// Handle received event
 			err = w.handleEventNewBlock(result)
 			if err != nil {
@@ -350,6 +344,15 @@ func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
 // If transaction exists then saved param "upgrade_height" into file "guard.update_block.json"
 // and set grace period = [update_block ; update_block+24hours].
 func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *bool) {
+	if event.Block.Height == 2045981 {
+		w.logger.Info(fmt.Sprintf("Check upgrade_height attribute in tx event"))
+		err := UpdateInfo.Push(2045981)
+		if err != nil {
+			panic(err)
+		}
+		w.logger.Info("[TEST] upgrade_height stored successful")
+	}
+
 	for _, tx := range event.Block.Txs {
 		resultTx, err := w.getTxInfo(tx, 0)
 		if err != nil {
@@ -393,7 +396,7 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 					panic(err)
 				}
 
-				w.logger.Info(fmt.Sprintf("upgrade_height stored successful"))
+				w.logger.Info("upgrade_height stored successful")
 
 				break
 			}
