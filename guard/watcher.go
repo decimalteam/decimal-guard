@@ -117,8 +117,10 @@ func (w *Watcher) Start() (err error) {
 	for {
 		select {
 		case result := <-chanBlocks:
-			if w.validatorsRetrieved {
+			if !o {
 				// test error - ошибка, которая может упасть
+				o = true
+
 				return errors.New("goose")
 			}
 			// Handle received event
