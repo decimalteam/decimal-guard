@@ -10,11 +10,6 @@ type eventBase struct {
 	latestBlockTime time.Time // timestamp of the latest block in the connected node chain
 }
 
-// eventStatus is emitted by a watcher when connected and firstly retrieved blockchain status.
-type eventStatus struct {
-	eventBase
-}
-
 // eventNewBlock is emitted by a watcher when new block is added to the chain.
 type eventNewBlock struct {
 	eventBase

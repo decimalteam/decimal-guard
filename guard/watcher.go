@@ -18,7 +18,6 @@ import (
 	client "github.com/tendermint/tendermint/rpc/client/http"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"github.com/tendermint/tendermint/types"
-	// ntypes "bitbucket.org/decimalteam/go-node/x/gov/internal/types"
 )
 
 // Watcher is an object implementing necessary validator watcher functions.
@@ -38,7 +37,6 @@ type Watcher struct {
 	signatureExpected   bool
 	validatorsRetrieved bool
 
-	chanEventStatus   chan<- eventStatus
 	chanEventNewBlock chan<- eventNewBlock
 	chanEventNoBlock  chan<- eventNoBlock
 
@@ -51,26 +49,19 @@ type Watcher struct {
 func NewWatcher(
 	config Config,
 	endpoint string,
-	chanEventStatus chan<- eventStatus,
 	chanEventNewBlock chan<- eventNewBlock,
 	chanEventNoBlock chan<- eventNoBlock,
 ) (*Watcher, error) {
-	// Create Tendermint c instance and connect it to the node
-	c, err := client.New(endpoint, "/websocket")
+	c, err := NewTendermintHTTPClient(endpoint)
 	if err != nil {
 		return nil, err
 	}
-
-	// It's necessary to override OnReset method to allow OnStart/OnStop to be called again and restart service
-	// https://github.com/tendermint/tendermint/blob/master/libs/service/service.go#L66
-	c.WSEvents.BaseService = NewBaseService("WSEvents", c.WSEvents)
 
 	return &Watcher{
 		config:            config,
 		endpoint:          endpoint,
 		client:            c,
 		missedBlocks:      make([]bool, config.MissedBlocksWindow),
-		chanEventStatus:   chanEventStatus,
 		chanEventNewBlock: chanEventNewBlock,
 		chanEventNoBlock:  chanEventNoBlock,
 		logger:            log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
@@ -84,8 +75,6 @@ func (w *Watcher) Start() (err error) {
 		return
 	}
 
-	w.connectedAt = time.Now()
-
 	ctx := context.Background()
 	subscriber := "watcher"
 	capacity := 1_000_000
@@ -96,12 +85,10 @@ func (w *Watcher) Start() (err error) {
 		return
 	}
 
-	// Lock the wait group
-	w.waitGroup.Add(1)
+	w.logger.Info(fmt.Sprintf("[%s] Successfully connected to the node", w.endpoint))
+	w.connectedAt = time.Now()
 
 	defer func() {
-		w.waitGroup.Done()
-
 		err := w.Stop()
 		if err != nil {
 			w.logger.Error(err.Error())
@@ -145,7 +132,7 @@ func (w *Watcher) Start() (err error) {
 			// Force validators set retrieving on next new block when reconnected
 			w.validatorsRetrieved = false
 			// Emit no block event to the guard
-			w.chanEventNoBlock <- w.onNoBlock(w.latestBlock)
+			w.chanEventNoBlock <- w.onNoBlock()
 		case <-w.client.Quit():
 			return
 		}
@@ -154,14 +141,13 @@ func (w *Watcher) Start() (err error) {
 
 // Restart resets http client of validator and start it again.
 func (w *Watcher) Restart() error {
+	w.mtx.Lock()
 	if w.connectedAt.IsZero() {
+		w.mtx.Unlock()
 		return nil
 	}
-
-	reconnectingTime := w.connectedAt.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
-	if reconnectingTime.After(time.Now()) {
-		return nil
-	}
+	w.connectedAt = time.Time{}
+	w.mtx.Unlock()
 
 	// It is necessary to wait if the client has started to close, but has not yet closed
 	select {
@@ -182,12 +168,20 @@ func (w *Watcher) Restart() error {
 		return err
 	}
 
+	// w.client.Reset worked for github.com/tendermint/tendermint v0.33.3, but it doesn't work for v0.33.9
+	// Therefore, to start the tendermint http client, we create a new one
+	// TODO when upgrading to the next version of tendermint, restart through w.client.Reset again
+	w.client, err = NewTendermintHTTPClient(w.endpoint)
+	if err != nil {
+		return err
+	}
+
 	go func(w *Watcher) {
 		w.logger.Info(fmt.Sprintf("[%s] Reconnecting to the node...", w.endpoint))
 		err = w.Start()
 		if err != nil {
 			w.logger.Error(fmt.Sprintf(
-				"[%s] ERROR: Node connection could not be restarted: [%s]",
+				"[%s] ERROR: Failed to connect to the node:: [%s]",
 				w.endpoint,
 				err,
 			))
@@ -205,8 +199,6 @@ func (w *Watcher) Stop() error {
 	}
 
 	w.validatorsRetrieved = false
-
-	w.waitGroup.Wait()
 
 	w.logger.Info(fmt.Sprintf("[%s] Disconnected from the node", w.endpoint))
 
@@ -492,7 +484,7 @@ func (w *Watcher) onNewBlock(newBlock int64, missedBlocks int) eventNewBlock {
 }
 
 // onNoBlock creates and returns no block event.
-func (w *Watcher) onNoBlock(latestBlock int64) eventNoBlock {
+func (w *Watcher) onNoBlock() eventNoBlock {
 	return eventNoBlock{
 		eventBase: eventBase{
 			endpoint:        w.endpoint,

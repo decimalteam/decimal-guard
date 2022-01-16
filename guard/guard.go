@@ -24,7 +24,6 @@ type Guard struct {
 	// Configured watchers are stored by node connection endpoints
 	watchers []*Watcher
 
-	chanEventStatus   chan eventStatus
 	chanEventNewBlock chan eventNewBlock
 	chanEventNoBlock  chan eventNoBlock
 
@@ -48,7 +47,6 @@ func NewGuard(config Config) (*Guard, error) {
 	}
 
 	// Prepare channels for events
-	chanEventStatus := make(chan eventStatus, 1024)
 	chanEventNewBlock := make(chan eventNewBlock, 1024)
 	chanEventNoBlock := make(chan eventNoBlock, 1024)
 
@@ -56,7 +54,7 @@ func NewGuard(config Config) (*Guard, error) {
 	endpoints := strings.Split(config.NodesEndpoints, ",")
 	watchers := make([]*Watcher, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		w, err := NewWatcher(config, strings.TrimSpace(endpoint), chanEventStatus, chanEventNewBlock, chanEventNoBlock)
+		w, err := NewWatcher(config, strings.TrimSpace(endpoint), chanEventNewBlock, chanEventNoBlock)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +65,6 @@ func NewGuard(config Config) (*Guard, error) {
 	return &Guard{
 		config:            config,
 		watchers:          watchers,
-		chanEventStatus:   chanEventStatus,
 		chanEventNewBlock: chanEventNewBlock,
 		chanEventNoBlock:  chanEventNoBlock,
 		logger:            logger,
@@ -128,7 +125,6 @@ func (guard *Guard) Run() (err error) {
 				guard.logger.Info("Kill signal received. Shutting down...")
 			}
 			return
-		case <-guard.chanEventStatus:
 			// Chain status is retrieved from the node
 		case e := <-guard.chanEventNewBlock:
 			// Check if count of missed to sign blocks is not critically high yet
@@ -172,11 +168,11 @@ func (guard *Guard) Run() (err error) {
 			// Log guard state
 			guard.printState()
 		case <-healthTicker.C:
-			// Ensure there is at lease one connected node and reconnect not connected ones
+			// Ensure there is at least one connected node and reconnect not connected ones
 			connected := false
 			for _, w := range guard.watchers {
 				if !w.IsRunning() {
-					err = w.Restart()
+					err := w.Restart()
 					if err != nil {
 						w.logger.Info(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
 					}
@@ -185,11 +181,7 @@ func (guard *Guard) Run() (err error) {
 				}
 			}
 			if !connected {
-				// Log error
-				guard.logger.Error(fmt.Sprintf(
-					"ERROR: There are no any new blocks during %d seconds!",
-					guard.config.NewBlockTimeout,
-				))
+				guard.logger.Error("ERROR: There are no connected nodes")
 			}
 		}
 	}
