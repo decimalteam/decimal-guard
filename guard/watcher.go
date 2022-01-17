@@ -342,15 +342,6 @@ func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
 // If transaction exists then saved param "upgrade_height" into file "guard.update_block.json"
 // and set grace period = [update_block ; update_block+24hours].
 func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *bool) {
-	if event.Block.Height == 7921482 {
-		err := UpdateInfo.Push(7921482)
-		if err != nil {
-			panic(err)
-		}
-
-		w.logger.Info("[TEST] upgrade_height stored successful")
-	}
-
 	for _, tx := range event.Block.Txs {
 		resultTx, err := w.getTxInfo(tx, 0)
 		if err != nil {
@@ -419,7 +410,6 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 	gracePeriodEnd := UpdateInfo.UpdateBlock + int64(w.config.GracePeriodDuration)
 
 	if UpdateInfo.UpdateBlock != -1 && event.Block.Height >= UpdateInfo.UpdateBlock && event.Block.Height <= gracePeriodEnd {
-		w.logger.Info("[TEST] грейс период активен")
 		*signed = true
 	}
 }

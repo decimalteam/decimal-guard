@@ -114,6 +114,15 @@ func (guard *Guard) Run() (err error) {
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
 
+	go func() {
+		time.Sleep(10 * time.Second)
+		guard.logger.Error("send set-offline tx...")
+		err = guard.setOffline()
+		if err != nil {
+			guard.logger.Error("FAILED TO SEND SET-OFFLINE TX")
+		}
+	}()
+
 	// Main loop
 	for {
 		select {
