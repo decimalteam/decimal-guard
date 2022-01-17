@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/service"
 	"os"
 	"strconv"
 	"strings"
@@ -14,10 +15,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ttypes "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/rpc/client"
+	client "github.com/tendermint/tendermint/rpc/client/http"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	"github.com/tendermint/tendermint/types"
-	// ntypes "bitbucket.org/decimalteam/go-node/x/gov/internal/types"
 )
 
 // Watcher is an object implementing necessary validator watcher functions.
@@ -25,8 +25,8 @@ type Watcher struct {
 	config   Config
 	endpoint string
 
-	client         *client.HTTP
-	connectingTime time.Time
+	client      *client.HTTP
+	connectedAt time.Time
 
 	status          *ctypes.ResultStatus
 	network         string
@@ -37,10 +37,8 @@ type Watcher struct {
 	signatureExpected   bool
 	validatorsRetrieved bool
 
-	chanEventStatus   chan<- eventStatus
 	chanEventNewBlock chan<- eventNewBlock
 	chanEventNoBlock  chan<- eventNoBlock
-	chanDisconnect    chan error
 
 	logger    log.Logger
 	waitGroup sync.WaitGroup
@@ -51,24 +49,21 @@ type Watcher struct {
 func NewWatcher(
 	config Config,
 	endpoint string,
-	chanEventStatus chan<- eventStatus,
 	chanEventNewBlock chan<- eventNewBlock,
 	chanEventNoBlock chan<- eventNoBlock,
 ) (*Watcher, error) {
-	// Create Tendermint c instance and connect it to the node
-	c, err := client.NewHTTP(endpoint, "/websocket")
+	c, err := NewTendermintHTTPClient(endpoint)
 	if err != nil {
 		return nil, err
 	}
+
 	return &Watcher{
 		config:            config,
 		endpoint:          endpoint,
 		client:            c,
 		missedBlocks:      make([]bool, config.MissedBlocksWindow),
-		chanEventStatus:   chanEventStatus,
 		chanEventNewBlock: chanEventNewBlock,
 		chanEventNoBlock:  chanEventNoBlock,
-		chanDisconnect:    make(chan error, 1),
 		logger:            log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
 		mtx:               sync.Mutex{},
 	}, nil
@@ -79,31 +74,27 @@ func (w *Watcher) Start() (err error) {
 	if w.IsRunning() {
 		return
 	}
-	if !w.connectingTime.IsZero() {
-		reconnectingTime := w.connectingTime.Add(time.Duration(w.config.NewBlockTimeout) * time.Second)
-		if reconnectingTime.After(time.Now()) {
-			return
-		}
-	}
-	w.connectingTime = time.Now()
 
 	ctx := context.Background()
 	subscriber := "watcher"
 	capacity := 1_000_000
-
-	// Logs
-	w.logger.Info(fmt.Sprintf("[%s] Connecting to the node...", w.endpoint))
-
-	// Lock the wait group
-	w.waitGroup.Add(1)
-	defer w.waitGroup.Done()
 
 	// Start Tendermint HTTP client
 	err = w.client.Start()
 	if err != nil {
 		return
 	}
-	defer w.client.Stop()
+
+	w.logger.Info(fmt.Sprintf("[%s] Successfully connected to the node", w.endpoint))
+	w.connectedAt = time.Now()
+
+	defer func() {
+		err := w.Stop()
+		if err != nil {
+			w.logger.Error(err.Error())
+			return
+		}
+	}()
 
 	// Retrieve blockchain info
 	w.updateCommon()
@@ -129,41 +120,89 @@ func (w *Watcher) Start() (err error) {
 			// Handle received event
 			err = w.handleEventNewBlock(result)
 			if err != nil {
-				w.logger.Error(err.Error())
 				return
 			}
 		case result := <-chanValidatorSetUpdates:
 			// Handle received event
 			err = w.handleEventValidatorSetUpdates(result)
 			if err != nil {
-				w.logger.Error(err.Error())
 				return
 			}
 		case <-time.After(time.Duration(w.config.NewBlockTimeout) * time.Second):
 			// Force validators set retrieving on next new block when reconnected
 			w.validatorsRetrieved = false
 			// Emit no block event to the guard
-			w.chanEventNoBlock <- w.onNoBlock(w.latestBlock)
-		case <-w.chanDisconnect:
+			w.chanEventNoBlock <- w.onNoBlock()
+		case <-w.client.Quit():
 			return
 		}
 	}
 }
 
-// Stop closes existing connection to the node.
-func (w *Watcher) Stop(err error) {
-	if !w.IsRunning() {
-		return
+// Restart resets http client of validator and start it again.
+func (w *Watcher) Restart() error {
+	w.mtx.Lock()
+	if w.connectedAt.IsZero() {
+		w.mtx.Unlock()
+		return nil
+	}
+	w.connectedAt = time.Time{}
+	w.mtx.Unlock()
+
+	// It is necessary to wait if the client has started to close, but has not yet closed
+	select {
+	case <-w.client.Quit():
+	case <-time.After(time.Second):
 	}
 
-	w.connectingTime = time.Time{}
+	// Close http connection with tendermint if it is not closed yet
+	err := w.Stop()
+	switch err {
+	case service.ErrAlreadyStopped, nil:
+		err = w.client.Reset()
+		if err != nil {
+			return err
+		}
+	case service.ErrNotStarted:
+	default:
+		return err
+	}
+
+	// w.client.Reset worked for github.com/tendermint/tendermint v0.33.3, but it doesn't work for v0.33.9
+	// Therefore, to start the tendermint http client, we create a new one
+	// TODO when upgrading to the next version of tendermint, restart through w.client.Reset again
+	w.client, err = NewTendermintHTTPClient(w.endpoint)
+	if err != nil {
+		return err
+	}
+
+	go func(w *Watcher) {
+		w.logger.Info(fmt.Sprintf("[%s] Reconnecting to the node...", w.endpoint))
+		err = w.Start()
+		if err != nil {
+			w.logger.Error(fmt.Sprintf(
+				"[%s] ERROR: Failed to connect to the node:: [%s]",
+				w.endpoint,
+				err,
+			))
+		}
+	}(w)
+
+	return nil
+}
+
+// Stop closes existing connection to the node.
+func (w *Watcher) Stop() error {
+	err := w.client.Stop()
+	if err != nil {
+		return err
+	}
+
 	w.validatorsRetrieved = false
 
-	w.chanDisconnect <- err
-	w.waitGroup.Wait()
-
-	// Logs
 	w.logger.Info(fmt.Sprintf("[%s] Disconnected from the node", w.endpoint))
+
+	return nil
 }
 
 // IsRunning returns true if the watcher connected to the node.
@@ -176,40 +215,46 @@ func (w *Watcher) IsRunning() bool {
 ////////////////////////////////////////////////////////////////////////////////
 
 // broadcastSetOfflineTx broadcasts `validator/set_offline` transaction from validator operator account.
-func (w *Watcher) broadcastSetOfflineTx(
-	chanTxHash chan *ctypes.ResultBroadcastTx,
-	chanTxResult chan *ctypes.ResultTx,
-	chanStop chan interface{},
-) (err error) {
+func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 	data, err := hex.DecodeString(w.config.SetOfflineTx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var resultBroadcast *ctypes.ResultBroadcastTx
+
+	return w.client.BroadcastTxSync(data)
+}
+
+// confirmSetOfflineTx wait confirmation `validator/set_offline` transaction from validator operator account.
+func (w *Watcher) confirmSetOfflineTx(
+	ctx context.Context,
+	broadcastTx *ctypes.ResultBroadcastTx,
+) (*ctypes.ResultTx, error) {
+	queryTx := fmt.Sprintf("tm.event = 'Tx' AND tx.hash = '%s'", broadcastTx.Hash.String())
+
+	chanTmEventTx, err := w.client.Subscribe(ctx, w.endpoint, queryTx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait until tx is committed
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-chanTmEventTx:
+	}
+
 	var resultTx *ctypes.ResultTx
-	// Broadcast transaction synchronously
-	for {
-		resultBroadcast, err = w.client.BroadcastTxSync(data)
-		if err != nil {
-			w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to broadcast set-offline tx: %s", w.endpoint, err))
-			time.Sleep(time.Second)
-			continue
+	for ctx.Err() == nil {
+		resultTx, err = w.client.Tx(broadcastTx.Hash.Bytes(), false)
+		if err == nil {
+			break
 		}
-		chanTxHash <- resultBroadcast
-		break
+
+		w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s. Retry...", w.endpoint, err))
+		time.Sleep(time.Second)
 	}
-	// Wait until transaction is done
-	for {
-		resultTx, err = w.client.Tx(resultBroadcast.Hash.Bytes(), false)
-		if err != nil {
-			w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
-			time.Sleep(time.Second)
-			continue
-		}
-		chanTxResult <- resultTx
-		break
-	}
-	return
+
+	return resultTx, ctx.Err()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -298,9 +343,9 @@ func getValueInEvent(event ttypes.Event, key string) (value string, ok bool) {
 // and set grace period = [update_block ; update_block+24hours].
 func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *bool) {
 	for _, tx := range event.Block.Txs {
-		resultTx, err := w.client.Tx(tx.Hash(), false)
+		resultTx, err := w.getTxInfo(tx, 0)
 		if err != nil {
-			w.logger.Error(fmt.Sprintf("Unable to get tx by hash: %s", err))
+			w.logger.Error(fmt.Sprintf("Unable to get tx in block %d by hash: %s", event.Block.Height, err))
 			break
 		}
 
@@ -369,6 +414,26 @@ func (w *Watcher) checkSoftwareUpgradeTX(event types.EventDataNewBlock, signed *
 	}
 }
 
+const maxAttempts = 5
+const attemptWaitTime = 100 * time.Millisecond
+
+// Tendermint may not find the transaction by hash, although it has already been inserted into the block
+// In this case, we wait a bit and try to get it again
+func (w *Watcher) getTxInfo(tx types.Tx, attempt int) (*ctypes.ResultTx, error) {
+	resultTx, err := w.client.Tx(tx.Hash(), false)
+	if err != nil {
+		if attempt == maxAttempts {
+			return nil, err
+		}
+
+		time.Sleep(attemptWaitTime)
+
+		return w.getTxInfo(tx, attempt+1)
+	}
+
+	return resultTx, nil
+}
+
 // handleEventValidatorSetUpdates handles validator set updates events received from watchers.
 func (w *Watcher) handleEventValidatorSetUpdates(result ctypes.ResultEvent) (err error) {
 	event, ok := result.Data.(types.EventDataValidatorSetUpdates)
@@ -413,7 +478,7 @@ func (w *Watcher) onNewBlock(newBlock int64, missedBlocks int) eventNewBlock {
 }
 
 // onNoBlock creates and returns no block event.
-func (w *Watcher) onNoBlock(latestBlock int64) eventNoBlock {
+func (w *Watcher) onNoBlock() eventNoBlock {
 	return eventNoBlock{
 		eventBase: eventBase{
 			endpoint:        w.endpoint,
