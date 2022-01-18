@@ -6,7 +6,7 @@ Decimal Guard is a tool helping to monitor validator node and set it offline if 
 
 Make sure you are using the latest version of Decimal Guard (v1.1.5)
 
-To check `guard` version run the command
+To check `guard` version use following commands:
 
 ```bash
 (cd ./cmd/guard && go run guard.go -v)
