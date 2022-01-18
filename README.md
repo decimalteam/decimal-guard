@@ -2,6 +2,16 @@
 
 Decimal Guard is a tool helping to monitor validator node and set it offline if node stops to sign blocks by any reason.
 
+### Check version
+
+Make sure you are using the latest version of Decimal Guard (v1.1.5)
+
+To check `guard` version run the command
+
+```bash
+(cd ./cmd/guard && go run guard.go -v)
+```
+
 ## Generating set-offline transaction
 
 Before starting Decimal Guard it is necessary create and sign offline transaction with message `validator/set_offline` which will be used to turn off validator when it does not sign blocks.
