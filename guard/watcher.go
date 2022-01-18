@@ -250,7 +250,7 @@ func (w *Watcher) confirmSetOfflineTx(
 			break
 		}
 
-		w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s", w.endpoint, err))
+		w.logger.Info(fmt.Sprintf("[%s] WARNING: Unable to retrieve set-offline tx info: %s. Retry...", w.endpoint, err))
 		time.Sleep(time.Second)
 	}
 
@@ -422,8 +422,6 @@ const attemptWaitTime = 100 * time.Millisecond
 func (w *Watcher) getTxInfo(tx types.Tx, attempt int) (*ctypes.ResultTx, error) {
 	resultTx, err := w.client.Tx(tx.Hash(), false)
 	if err != nil {
-		w.logger.Error(fmt.Sprintf("[TEST] attempt %d", attempt))
-
 		if attempt == maxAttempts {
 			return nil, err
 		}
@@ -431,10 +429,6 @@ func (w *Watcher) getTxInfo(tx types.Tx, attempt int) (*ctypes.ResultTx, error) 
 		time.Sleep(attemptWaitTime)
 
 		return w.getTxInfo(tx, attempt+1)
-	}
-
-	if attempt != 0 {
-		w.logger.Error(fmt.Sprintf("attempt ok %d", attempt))
 	}
 
 	return resultTx, nil
