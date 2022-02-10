@@ -1,2 +1,4 @@
 **/.env
 .vscode
+.idea
+/cmd/guard/guard.update_block.json
