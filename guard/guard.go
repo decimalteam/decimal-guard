@@ -71,6 +71,23 @@ func NewGuard(config Config) (*Guard, error) {
 	}, nil
 }
 
+func checkHealth(ctx context.Context, w *Watcher) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	default:
+		health, err := w.client.Health()
+		if err != nil || health == nil || !w.IsRunning() {
+			err := w.Restart()
+			if err != nil {
+				w.logger.Info(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
+			}
+			return false
+		}
+		return true
+	}
+}
+
 // Run starts watchers and stops only when application is closed.
 func (guard *Guard) Run() (err error) {
 
@@ -113,6 +130,33 @@ func (guard *Guard) Run() (err error) {
 	// Prepare tickers
 	printTicker := time.NewTicker(time.Minute)
 	healthTicker := time.NewTicker(time.Second)
+
+	// Ensure there is at least one connected node and reconnect not connected ones
+	healthCheckDuration := time.Millisecond * 800
+	go func() {
+		for {
+			select {
+			case v := <-chanInterrupt:
+				switch v {
+				case os.Interrupt:
+					guard.logger.Info("Interrupt signal received. Shutting down...")
+				case os.Kill:
+					guard.logger.Info("Kill signal received. Shutting down...")
+				}
+				return
+			default:
+				connected := false
+				for _, w := range guard.watchers {
+					ctx := context.Background()
+					ctx, _ = context.WithTimeout(ctx, healthCheckDuration)
+					connected = checkHealth(ctx, w)
+				}
+				if !connected {
+					guard.logger.Error("ERROR: There are no connected nodes")
+				}
+			}
+		}
+	}()
 
 	// Main loop
 	for {
@@ -187,9 +231,9 @@ func (guard *Guard) Run() (err error) {
 	}
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////
 // Internal functions
-////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////
 
 // validateSetOfflineTx ensure provided set-offline tx is valid at current moment.
 func (guard *Guard) validateSetOfflineTx() (err error) {

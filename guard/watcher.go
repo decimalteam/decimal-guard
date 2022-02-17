@@ -208,10 +208,6 @@ func (w *Watcher) Stop() error {
 
 // IsRunning returns true if the watcher connected to the node.
 func (w *Watcher) IsRunning() bool {
-	health, err := w.client.Health()
-	if err != nil || health == nil {
-		return false
-	}
 	return w.client.IsRunning()
 }
 
