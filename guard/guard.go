@@ -76,11 +76,14 @@ func checkHealth(ctx context.Context, w *Watcher) bool {
 	case <-ctx.Done():
 		return false
 	default:
-		health, err := w.client.Health()
-		if err != nil || health == nil || !w.IsRunning() {
+		_, err := w.client.Health()
+		if err != nil {
+			w.logger.Error(fmt.Sprintf("[%s] ERROR: Failed to check watcher health: %s", w.endpoint, err))
+		}
+		if err != nil || !w.IsRunning() {
 			err := w.Restart()
 			if err != nil {
-				w.logger.Info(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
+				w.logger.Error(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
 			}
 			return false
 		}
@@ -134,26 +137,20 @@ func (guard *Guard) Run() (err error) {
 	// Ensure there is at least one connected node and reconnect not connected ones
 	healthCheckDuration := time.Millisecond * 800
 	go func() {
-		for {
-			select {
-			case v := <-chanInterrupt:
-				switch v {
-				case os.Interrupt:
-					guard.logger.Info("Interrupt signal received. Shutting down...")
-				case os.Kill:
-					guard.logger.Info("Kill signal received. Shutting down...")
+		for range healthTicker.C {
+			connected := false
+			disconnectedAll := true
+			for _, w := range guard.watchers {
+				ctx := context.Background()
+				ctx, cancel := context.WithTimeout(ctx, healthCheckDuration)
+				connected = checkHealth(ctx, w)
+				if connected && disconnectedAll {
+					disconnectedAll = false
 				}
-				return
-			default:
-				connected := false
-				for _, w := range guard.watchers {
-					ctx := context.Background()
-					ctx, _ = context.WithTimeout(ctx, healthCheckDuration)
-					connected = checkHealth(ctx, w)
-				}
-				if !connected {
-					guard.logger.Error("ERROR: There are no connected nodes")
-				}
+				cancel()
+			}
+			if disconnectedAll {
+				guard.logger.Error("ERROR: There are no connected nodes")
 			}
 		}
 	}()
@@ -211,22 +208,6 @@ func (guard *Guard) Run() (err error) {
 		case <-printTicker.C:
 			// Log guard state
 			guard.printState()
-		case <-healthTicker.C:
-			// Ensure there is at least one connected node and reconnect not connected ones
-			connected := false
-			for _, w := range guard.watchers {
-				if !w.IsRunning() {
-					err := w.Restart()
-					if err != nil {
-						w.logger.Info(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
-					}
-				} else {
-					connected = true
-				}
-			}
-			if !connected {
-				guard.logger.Error("ERROR: There are no connected nodes")
-			}
 		}
 	}
 }
