@@ -71,11 +71,9 @@ func NewGuard(config Config) (*Guard, error) {
 	}, nil
 }
 
-func checkHealth(ctx context.Context, w *Watcher) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	default:
+func checkHealth(w *Watcher) chan bool {
+	signalCh := make(chan bool)
+	go func(ch chan bool, w *Watcher) {
 		_, err := w.client.Health()
 		if err != nil {
 			w.logger.Error(fmt.Sprintf("[%s] ERROR: Failed to check watcher health: %s", w.endpoint, err))
@@ -85,10 +83,15 @@ func checkHealth(ctx context.Context, w *Watcher) bool {
 			if err != nil {
 				w.logger.Error(fmt.Sprintf("[%s] ERROR: Failed to restart watcher: %s", w.endpoint, err))
 			}
-			return false
+			ch <- false
+			close(ch)
+			return
 		}
-		return true
-	}
+		ch <- true
+		close(ch)
+	}(signalCh, w)
+
+	return signalCh
 }
 
 // Run starts watchers and stops only when application is closed.
@@ -143,7 +146,13 @@ func (guard *Guard) Run() (err error) {
 			for _, w := range guard.watchers {
 				ctx := context.Background()
 				ctx, cancel := context.WithTimeout(ctx, healthCheckDuration)
-				connected = checkHealth(ctx, w)
+				healthOk := checkHealth(w)
+				select {
+				case <-ctx.Done():
+					connected = false
+				case res := <-healthOk:
+					connected = res
+				}
 				if connected && disconnectedAll {
 					disconnectedAll = false
 				}
