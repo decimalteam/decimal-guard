@@ -221,7 +221,8 @@ func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	// no response delay check
+	// guard crashes if there is no response from the server
 	return w.client.BroadcastTxSync(data)
 }
 
