@@ -224,6 +224,7 @@ func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute*14+time.Second*59+time.Millisecond*500)
+	defer cancel()
 	check := make(chan bool)
 	var result *ctypes.ResultBroadcastTx
 
@@ -236,12 +237,10 @@ func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 
 	select {
 	case <-ctx.Done():
-		err = errors.New("client not response")
+		return nil, errors.New("client not response")
 	case <-check:
+		return result, err
 	}
-	cancel()
-
-	return result, err
 }
 
 // confirmSetOfflineTx wait confirmation `validator/set_offline` transaction from validator operator account.
