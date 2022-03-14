@@ -221,9 +221,27 @@ func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 	if err != nil {
 		return nil, err
 	}
-	// no response delay check
-	// guard crashes if there is no response from the server
-	return w.client.BroadcastTxSync(data)
+
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*14+time.Second*59+time.Millisecond*500)
+	check := make(chan bool)
+	var result *ctypes.ResultBroadcastTx
+
+	go func(_ *ctypes.ResultBroadcastTx, _ error) (*ctypes.ResultBroadcastTx, error) {
+		result, err = w.client.BroadcastTxSync(data)
+		check <- true
+		close(check)
+		return result, err
+	}(result, err)
+
+	select {
+	case <-ctx.Done():
+		err = errors.New("client not response")
+	case <-check:
+	}
+	cancel()
+
+	return result, err
 }
 
 // confirmSetOfflineTx wait confirmation `validator/set_offline` transaction from validator operator account.
