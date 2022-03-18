@@ -73,7 +73,7 @@ func NewGuard(config Config) (*Guard, error) {
 
 func checkHealth(w *Watcher) chan bool {
 	signalCh := make(chan bool)
-	go func(ch chan bool, w *Watcher) {
+	func(ch chan bool, w *Watcher) {
 		_, err := w.client.Health()
 		if err != nil {
 			w.logger.Error(fmt.Sprintf("[%s] ERROR: Failed to check watcher health: %s", w.endpoint, err))
@@ -135,10 +135,11 @@ func (guard *Guard) Run() (err error) {
 
 	// Prepare tickers
 	printTicker := time.NewTicker(time.Minute)
-	healthTicker := time.NewTicker(time.Second)
+	healthDuration := time.Millisecond
+	healthTicker := time.NewTicker(healthDuration * 1000)
 
 	// Ensure there is at least one connected node and reconnect not connected ones
-	healthCheckDuration := time.Millisecond * 800
+	healthCheckDuration := healthDuration * 800
 	go func() {
 		for range healthTicker.C {
 			connected := false

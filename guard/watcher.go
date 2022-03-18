@@ -223,21 +223,21 @@ func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 	}
 
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, time.Minute*14+time.Second*59+time.Millisecond*500)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*5)
 	defer cancel()
-	check := make(chan bool)
+	check := make(chan struct{})
 	var result *ctypes.ResultBroadcastTx
 
-	go func(_ *ctypes.ResultBroadcastTx, _ error) (*ctypes.ResultBroadcastTx, error) {
+	go func() (*ctypes.ResultBroadcastTx, error) {
 		result, err = w.client.BroadcastTxSync(data)
-		check <- true
+		check <- struct{}{}
 		close(check)
 		return result, err
-	}(result, err)
+	}()
 
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("client not response")
+		return nil, ctx.Err()
 	case <-check:
 		return result, err
 	}
