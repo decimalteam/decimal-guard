@@ -73,7 +73,7 @@ func NewGuard(config Config) (*Guard, error) {
 
 func checkHealth(w *Watcher) chan bool {
 	signalCh := make(chan bool)
-	func(ch chan bool, w *Watcher) {
+	go func(ch chan bool, w *Watcher) {
 		_, err := w.client.Health()
 		if err != nil {
 			w.logger.Error(fmt.Sprintf("[%s] ERROR: Failed to check watcher health: %s", w.endpoint, err))
@@ -150,6 +150,7 @@ func (guard *Guard) Run() (err error) {
 				healthOk := checkHealth(w)
 				select {
 				case <-ctx.Done():
+					guard.logger.Error(fmt.Sprintf("[%s] ERROR: Failed to check watcher health. Client not response", w.endpoint))
 					connected = false
 				case res := <-healthOk:
 					connected = res

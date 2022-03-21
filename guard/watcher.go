@@ -228,11 +228,10 @@ func (w *Watcher) broadcastSetOfflineTx() (*ctypes.ResultBroadcastTx, error) {
 	check := make(chan struct{})
 	var result *ctypes.ResultBroadcastTx
 
-	go func() (*ctypes.ResultBroadcastTx, error) {
+	go func() {
 		result, err = w.client.BroadcastTxSync(data)
 		check <- struct{}{}
 		close(check)
-		return result, err
 	}()
 
 	select {
