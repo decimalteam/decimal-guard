@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// Create Decimal API instance
-	api := decapi.NewAPI(config.APIURL)
+	api := decapi.NewAPI(config.APIURL, nil)
 
 	// Create account from mnemonic
 	account, err := wallet.NewAccountFromMnemonicWords(config.Mnemonic, "")
