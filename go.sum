@@ -1,7 +1,7 @@
-bitbucket.org/decimalteam/decimal-go-sdk v1.1.1 h1:A83wCKdL6ziQVnnAimjPsCZrazcSAzuvkPYYIwEMVbE=
-bitbucket.org/decimalteam/decimal-go-sdk v1.1.1/go.mod h1:kxrDyJYpt+PEux1ysOMHXdiCGz0bLYO5QBu8LF9FPq4=
-bitbucket.org/decimalteam/go-node v1.2.13 h1:5xy2jWOScz6nExnrXpCNEUjSCQxrrn+ESiJJX6W1nns=
-bitbucket.org/decimalteam/go-node v1.2.13/go.mod h1:/g+zeSHnfDUycGFqDoitLWVZZFHNmPCgYzHMwU8gY8I=
+bitbucket.org/decimalteam/decimal-go-sdk v1.2.0 h1:ZzeXSlIbZq9rvD2pFh5bQTQ72sJTaYzn8zr5k8yx3Bo=
+bitbucket.org/decimalteam/decimal-go-sdk v1.2.0/go.mod h1:NxDNPFJ0VTuuUMegziRawjQmHY8r+NOdme3dWQkT+1k=
+bitbucket.org/decimalteam/go-node v1.3.0 h1:Mi74mESuaFd4GkrrroNwqsxYH8OQnVXLe6aJ11JDp90=
+bitbucket.org/decimalteam/go-node v1.3.0/go.mod h1:/g+zeSHnfDUycGFqDoitLWVZZFHNmPCgYzHMwU8gY8I=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/99designs/keyring v1.1.6 h1:kVDC2uCgVwecxCk+9zoCt2uEL6dt+dfVzMvGgnVcIuM=
