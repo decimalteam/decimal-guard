@@ -1,0 +1,20 @@
+---
+kind: pipeline
+type: docker
+name: mirror
+
+trigger:
+  event: [push, tag]
+
+clone:
+  disable: true
+
+steps:
+  - name: mirror
+    image: osshelp/drone-git-mirror
+    settings:
+      target_repo: git@github.com:decimalteam/decimal-guard.git
+      ssh_key:
+        from_secret: github-mirror-key
+      git_email: "droneci@decimalteam"
+      git_name: "Drone CI"
